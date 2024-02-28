@@ -8,6 +8,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+from torcheval.metrics import BinaryAccuracy, BinaryAUPRC, BinaryPrecision, BinaryRecall
 
 from ultralytics.utils import LOGGER, SimpleClass, TryExcept, plt_settings
 
@@ -1217,6 +1218,142 @@ class ClassifyMetrics(SimpleClass):
     def keys(self):
         """Returns a list of keys for the results_dict property."""
         return ["metrics/accuracy_top1", "metrics/accuracy_top5"]
+
+    @property
+    def curves(self):
+        """Returns a list of curves for accessing specific metrics curves."""
+        return []
+
+    @property
+    def curves_results(self):
+        """Returns a list of curves for accessing specific metrics curves."""
+        return []
+    
+    
+class MultiLabelClassifyMetrics(SimpleClass):
+    """
+    Class for computing multi-label classification metrics including precision, recall, and F1-score.
+
+    Attributes:
+        precision (float): The precision score.
+        recall (float): The recall score.
+        f1_score (float): The F1-score.
+        speed (Dict[str, float]): A dictionary containing the time taken for each step in the pipeline.
+
+    Properties:
+        results_dict (Dict[str, Union[float, str]]): A dictionary containing the multi-label classification metrics.
+        keys (List[str]): A list of keys for the results_dict.
+
+    Methods:
+        process(targets, pred): Processes the targets and predictions to compute multi-label classification metrics.
+    """
+
+    def __init__(self) -> None:
+        self.task = "mlc"
+        self.avg_acc = 0.0
+        self.avg_precision = 0.0
+        self.avg_recall = 0.0
+        self.avg_map = 0.0
+        self.speed = {
+            "preprocess": 0.0,
+            "inference": 0.0,
+            "loss": 0.0,
+            "postprocess": 0.0,
+        }
+
+    def process(self, targets, pred):
+        """
+        Processes the targets and predictions to compute multi-label classification metrics.
+
+        Args:
+            targets (torch.Tensor): The ground truth targets.
+            pred (torch.Tensor): The predicted targets.
+
+        Returns:
+            None
+        """
+        # Compute acc, precision, recall, and mAP for multi-label classification
+        # metrics sums
+        pred = torch.cat(pred, 0)
+        targets = torch.cat(targets, 0)
+
+        num_attr = targets.shape[-1]
+
+        sum_acc = 0.0
+        sum_precision = 0.0
+        sum_recall = 0.0
+        sum_map = 0.0
+
+        for i in range(num_attr):
+            logits = pred[:, i]
+            truths = targets[:, i].float()
+
+            # get metrics
+            acc, precision, recall, mAP = self._get_metrics(logits, truths)
+
+            # update running metrics
+            sum_acc += acc
+            sum_precision += precision
+            sum_recall += recall
+            sum_map += mAP
+
+        self.avg_acc = sum_acc / num_attr
+        self.avg_precision = sum_precision / num_attr
+        self.avg_recall = sum_recall / num_attr
+        self.avg_map = sum_map / num_attr
+
+    def _get_metrics(self, logits, truths):
+        logits = logits.to("cpu")
+        truths = truths.to("cpu").long()
+        # accuracy
+        # acc = torch.sum(preds == truths) / len(truths)
+        metric_accuracy = BinaryAccuracy()
+        acc = metric_accuracy.update(logits, truths).compute()
+
+        # precision
+        precision_metric = BinaryPrecision()
+        precision = precision_metric.update(logits, truths).compute()
+
+        # recall
+        recall_metric = BinaryRecall()
+        recall = recall_metric.update(logits, truths).compute()
+
+        # mAP
+        MAP = BinaryAUPRC()
+        MAP.update(logits, truths)
+        mAP = MAP.compute()
+
+        return acc, precision, recall, mAP
+
+    @property
+    def fitness(self):
+        """Returns mean of avg mAP as fitness score."""
+        return self.avg_map
+
+    @property
+    def results_dict(self):
+        """
+        Returns a dictionary containing the multi-label classification metrics.
+
+        Returns:
+            Dict[str, Union[float, str]]: A dictionary containing the multi-label classification metrics.
+        """
+        return {
+            "avg_acc": self.avg_acc,
+            "avg_precision": self.avg_precision,
+            "avg_recall": self.avg_recall,
+            "avg_map": self.avg_map,
+        }
+
+    @property
+    def keys(self):
+        """
+        Returns a list of keys for the results_dict.
+
+        Returns:
+            List[str]: A list of keys for the results_dict.
+        """
+        return list(self.results_dict.keys())
 
     @property
     def curves(self):
