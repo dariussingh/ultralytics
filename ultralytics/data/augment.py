@@ -8,6 +8,7 @@ import cv2
 import numpy as np
 import torch
 import torchvision.transforms as T
+import torchvision.transforms.functional as F
 
 from ultralytics.utils import LOGGER, colorstr
 from ultralytics.utils.checks import check_version
@@ -1052,6 +1053,47 @@ def classify_transforms(
     return T.Compose(tfl)
 
 
+def mlc_transforms(
+    size=224, mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225], augment=False
+):
+    """
+    Multilabel Classification transforms for evaluation/inference.
+
+    Args:
+        size (int): image size
+        mean (tuple): mean values of RGB channels
+        std (tuple): std values of RGB channels
+        augment (bool): whether to apply augmentations
+
+    Returns:
+        (T.Compose): torchvision transforms
+    """
+    if augment:
+        transforms = T.Compose(
+            [
+                T.GaussianBlur(3),
+                T.RandomAutocontrast(p=0.5),
+                T.ColorJitter(),
+                # SquarePad(),  # Padding images while maintaining aspect ratio
+                T.Resize((size, size)),
+                T.RandomHorizontalFlip(),  # Mirror the image horizontally with a certain probability
+                T.RandomRotation(10),  # Randomly rotate the image by up to 10 degrees
+                T.ToTensor(),
+                T.Normalize(mean=mean, std=std),  # Normalize
+            ]
+        )
+    else:
+        transforms = T.Compose(
+            [
+                # SquarePad(),  # Padding images while maintaining aspect ratio
+                T.Resize((size, size)),
+                T.ToTensor(),
+                T.Normalize(mean=mean, std=std),
+            ]
+        )
+    return transforms
+
+
 # Classification augmentations train ---------------------------------------------------------------------------------------
 def classify_augmentations(
     size=224,
@@ -1195,6 +1237,19 @@ class ClassifyLetterBox:
         im_out = np.full((hs, ws, 3), 114, dtype=im.dtype)
         im_out[top : top + h, left : left + w] = cv2.resize(im, (w, h), interpolation=cv2.INTER_LINEAR)
         return im_out
+
+
+# Padding while maintaining aspect ratio
+class SquarePad(object):
+    """Padding images while maintaining aspect ratio"""
+
+    def __call__(self, image):
+        w, h = image.size
+        max_wh = np.max([w, h])
+        hp = int((max_wh - w) / 2)
+        vp = int((max_wh - h) / 2)
+        padding = (hp, vp, hp, vp)
+        return F.pad(image, padding, 0, "constant")
 
 
 # NOTE: keep this class for backward compatibility

@@ -162,6 +162,64 @@ def verify_image_label(args):
         nc = 1
         msg = f"{prefix}WARNING ⚠️ {im_file}: ignoring corrupt image/label: {e}"
         return [None, None, None, None, None, nm, nf, ne, nc, msg]
+    
+    
+def verify_mlc_image_label(args):
+    """Verify one image-label pair."""
+    im_file, lb_file, prefix, num_attrs = args
+    # Number (missing, found, empty, corrupt), message, attributes
+    nm, nf, ne, nc, msg, attrs = 0, 0, 0, 0, "", []
+    try:
+        # Verify images
+        im = Image.open(im_file)
+        im.verify()  # PIL verify
+        shape = exif_size(im)  # image size
+        shape = (shape[1], shape[0])  # hw
+        assert (shape[0] > 9) & (shape[1] > 9), f"image size {shape} <10 pixels"
+        assert im.format.lower() in IMG_FORMATS, f"invalid image format {im.format}"
+        if im.format.lower() in ("jpg", "jpeg"):
+            with open(im_file, "rb") as f:
+                f.seek(-2, 2)
+                if f.read() != b"\xff\xd9":  # corrupt JPEG
+                    ImageOps.exif_transpose(Image.open(im_file)).save(
+                        im_file, "JPEG", subsampling=0, quality=100
+                    )
+                    msg = (
+                        f"{prefix}WARNING ⚠️ {im_file}: corrupt JPEG restored and saved"
+                    )
+
+        # Verify labels
+        if os.path.isfile(lb_file):
+            nf = 1  # label found
+            with open(lb_file) as f:
+                lb = [x.split() for x in f.read().strip().splitlines() if len(x)]
+                lb = np.array(lb, dtype=np.float32)
+                attrs = np.array(
+                    [1 if i in lb[0] else 0 for i in range(num_attrs)],
+                    dtype=np.float32,
+                )
+
+            nl = len(lb)
+            if nl:
+                # All labels
+                max_cls = lb[0, :].max()  # max label value
+                assert max_cls < num_attrs, (
+                    f"Label class {int(max_cls)} exceeds dataset attribute count {num_attrs}. "
+                    f"Possible class labels are 0-{num_attrs - 1}"
+                )
+            else:
+                ne = 1  # label empty
+                lb = np.zeros((0, num_attrs), dtype=np.float32)
+                attrs = np.zeros(num_attrs, dtype=np.float32)
+        else:
+            nm = 1  # label missing
+            lb = np.zeros((0, num_attrs), dtype=np.float32)
+            attrs = np.zeros(num_attrs, dtype=np.float32)
+        return im_file, lb, attrs, nm, nf, ne, nc, msg
+    except Exception as e:
+        nc = 1
+        msg = f"{prefix}WARNING ⚠️ {im_file}: ignoring corrupt image/label: {e}"
+        return [None, None, None, None, None, nm, nf, ne, nc, msg]
 
 
 def polygon2mask(imgsz, polygons, color=1, downsample_ratio=1):
