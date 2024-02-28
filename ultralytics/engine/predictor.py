@@ -37,7 +37,7 @@ import torch
 
 from ultralytics.cfg import get_cfg, get_save_dir
 from ultralytics.data import load_inference_source
-from ultralytics.data.augment import LetterBox, classify_transforms
+from ultralytics.data.augment import LetterBox, classify_transforms, mlc_transforms
 from ultralytics.nn.autobackend import AutoBackend
 from ultralytics.utils import DEFAULT_CFG, LOGGER, MACOS, WINDOWS, callbacks, colorstr, ops
 from ultralytics.utils.checks import check_imgsz, check_imshow
@@ -216,15 +216,24 @@ class BasePredictor:
     def setup_source(self, source):
         """Sets up source and inference mode."""
         self.imgsz = check_imgsz(self.args.imgsz, stride=self.model.stride, min_dim=2)  # check image size
-        self.transforms = (
-            getattr(
+        
+        if self.args.task == "classify":
+            self.transforms = getattr(
                 self.model.model,
                 "transforms",
-                classify_transforms(self.imgsz[0], crop_fraction=self.args.crop_fraction),
+                classify_transforms(
+                    self.imgsz[0], crop_fraction=self.args.crop_fraction
+                ),
             )
-            if self.args.task == "classify"
-            else None
-        )
+        elif self.args.task == "mlc":
+            self.transforms = getattr(
+                self.model.model,
+                "transforms",
+                mlc_transforms(self.imgsz[0], augment=False),
+            )
+        else:
+            self.transforms = None
+            
         self.dataset = load_inference_source(
             source=source, vid_stride=self.args.vid_stride, buffer=self.args.stream_buffer
         )
