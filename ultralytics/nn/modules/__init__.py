@@ -56,7 +56,7 @@ from .conv import (
     RepConv,
     SpatialAttention,
 )
-from .head import OBB, Classify, Detect, Pose, RTDETRDecoder, Segment, WorldDetect
+from .head import OBB, Classify, MLC, Detect, Pose, RTDETRDecoder, Segment, WorldDetect
 from .transformer import (
     AIFI,
     MLP,
@@ -109,6 +109,7 @@ __all__ = (
     "Segment",
     "Pose",
     "Classify",
+    "MLC",
     "TransformerEncoderLayer",
     "RepC3",
     "RTDETRDecoder",

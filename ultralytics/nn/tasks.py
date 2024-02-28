@@ -14,6 +14,7 @@ from ultralytics.nn.modules import (
     C3,
     C3TR,
     OBB,
+    MLC,
     SPP,
     SPPF,
     Bottleneck,
@@ -46,7 +47,7 @@ from ultralytics.nn.modules import (
 )
 from ultralytics.utils import DEFAULT_CFG_DICT, DEFAULT_CFG_KEYS, LOGGER, colorstr, emojis, yaml_load
 from ultralytics.utils.checks import check_requirements, check_suffix, check_yaml
-from ultralytics.utils.loss import v8ClassificationLoss, v8DetectionLoss, v8OBBLoss, v8PoseLoss, v8SegmentationLoss
+from ultralytics.utils.loss import v8ClassificationLoss, v8MLCLoss, v8DetectionLoss, v8OBBLoss, v8PoseLoss, v8SegmentationLoss
 from ultralytics.utils.plotting import feature_visualization
 from ultralytics.utils.torch_utils import (
     fuse_conv_and_bn,
@@ -430,6 +431,72 @@ class ClassificationModel(BaseModel):
     def init_criterion(self):
         """Initialize the loss criterion for the ClassificationModel."""
         return v8ClassificationLoss()
+    
+
+
+class MLCModel(BaseModel):
+    """YOLOv8 multilabel classification model."""
+
+    def __init__(self, cfg="yolov8n-cls.yaml", ch=3, nc=None, verbose=True):
+        """Init MultiLabel ClassificationModel with YAML, channels, number of classes, verbose flag."""
+        super().__init__()
+        self._from_yaml(cfg, ch, nc, verbose)
+
+    def _from_yaml(self, cfg, ch, nc, verbose):
+        """Set YOLOv8 model configurations and define the model architecture."""
+        self.yaml = cfg if isinstance(cfg, dict) else yaml_model_load(cfg)  # cfg dict
+
+        # Define model
+        ch = self.yaml["ch"] = self.yaml.get("ch", ch)  # input channels
+        if nc and nc != self.yaml["nc"]:
+            LOGGER.info(f"Overriding model.yaml nc={self.yaml['nc']} with nc={nc}")
+            self.yaml["nc"] = nc  # override YAML value
+        elif not nc and not self.yaml.get("nc", None):
+            raise ValueError(
+                "nc not specified. Must specify nc in model.yaml or function arguments."
+            )
+        self.model, self.save = parse_model(
+            deepcopy(self.yaml), ch=ch, verbose=verbose
+        )  # model, savelist
+        self.stride = torch.Tensor([1])  # no stride constraints
+        self.names = {i: f"{i}" for i in range(self.yaml["nc"])}  # default names dict
+        self.info()
+
+    @staticmethod
+    def reshape_outputs(model, nc):
+        """Update a TorchVision classification model to class count 'n' if required."""
+        name, m = list(
+            (model.model if hasattr(model, "model") else model).named_children()
+        )[
+            -1
+        ]  # last module
+        if isinstance(m, MLC):  # YOLO Classify() head
+            if m.linear.out_features != nc:
+                m.linear = nn.Linear(m.linear.in_features, nc)
+        elif isinstance(m, nn.Linear):  # ResNet, EfficientNet
+            if m.out_features != nc:
+                setattr(model, name, nn.Linear(m.in_features, nc))
+        elif isinstance(m, nn.Sequential):
+            types = [type(x) for x in m]
+            if nn.Linear in types:
+                i = types.index(nn.Linear)  # nn.Linear index
+                if m[i].out_features != nc:
+                    m[i] = nn.Linear(m[i].in_features, nc)
+            elif nn.Conv2d in types:
+                i = types.index(nn.Conv2d)  # nn.Conv2d index
+                if m[i].out_channels != nc:
+                    m[i] = nn.Conv2d(
+                        m[i].in_channels,
+                        nc,
+                        m[i].kernel_size,
+                        m[i].stride,
+                        bias=m[i].bias is not None,
+                    )
+
+    def init_criterion(self):
+        """Initialize the loss criterion for the ClassificationModel."""
+        return v8MLCLoss()
+    
 
 
 class RTDETRDetectionModel(DetectionModel):
@@ -837,6 +904,7 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
         n = n_ = max(round(n * depth), 1) if n > 1 else n  # depth gain
         if m in (
             Classify,
+            MLC,
             Conv,
             ConvTranspose,
             GhostConv,
@@ -965,6 +1033,8 @@ def guess_model_task(model):
         m = cfg["head"][-1][-2].lower()  # output module name
         if m in ("classify", "classifier", "cls", "fc"):
             return "classify"
+        if m == "mlc":
+            return "mlc"
         if m == "detect":
             return "detect"
         if m == "segment":
@@ -993,6 +1063,8 @@ def guess_model_task(model):
                 return "segment"
             elif isinstance(m, Classify):
                 return "classify"
+            elif isinstance(m, MLC):
+                return "mlc"
             elif isinstance(m, Pose):
                 return "pose"
             elif isinstance(m, OBB):
@@ -1007,6 +1079,8 @@ def guess_model_task(model):
             return "segment"
         elif "-cls" in model.stem or "classify" in model.parts:
             return "classify"
+        elif "-mlc" in model.stem or "mlc" in model.parts:
+            return "mlc"
         elif "-pose" in model.stem or "pose" in model.parts:
             return "pose"
         elif "-obb" in model.stem or "obb" in model.parts:
