@@ -18,7 +18,7 @@ names:
   0: person
 
 # Labels
-labels:
+attributes:
   0: hat
   1: shirt
   2: pants

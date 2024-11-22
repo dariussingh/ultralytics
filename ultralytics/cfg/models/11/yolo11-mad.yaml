@@ -3,7 +3,7 @@
 
 # Parameters
 nc: 1 # number of classes
-nlbl: 4 # number of labels
+nattr: 4 # number of attributes
 scales: # model compound scaling constants, i.e. 'model=yolo11n-mld.yaml' will call yolo11-mld.yaml with scale 'n'
   # [depth, width, max_channels]
   n: [0.50, 0.25, 1024] # summary: 344 layers, 2695747 parameters, 2695731 gradients, 6.9 GFLOPs

@@ -15,7 +15,7 @@ from .conv import Conv, DWConv
 from .transformer import MLP, DeformableTransformerDecoder, DeformableTransformerDecoderLayer
 from .utils import bias_init_with_prob, linear_init
 
-__all__ = "Detect", "Segment", "Pose", "Classify", "OBB", "MLD", "RTDETRDecoder", "v10Detect"
+__all__ = "Detect", "Segment", "Pose", "Classify", "OBB", "MAD", "RTDETRDecoder", "v10Detect"
 
 
 class Detect(nn.Module):
@@ -279,8 +279,8 @@ class Pose(Detect):
             return y
         
         
-class MLD(Detect):
-    """YOLO MLD head for multilabel detection models."""
+class MAD(Detect):
+    """YOLO MAD head for multilabel detection models."""
 
     def __init__(self, nc=1, ne=1, ch=()):
         """Initialize OBB with number of classes `nc` and layer channels `ch`."""
@@ -293,12 +293,12 @@ class MLD(Detect):
     def forward(self, x):
         """Perform forward pass through YOLO model and return predictions."""
         bs = x[0].shape[0]  # batch size
-        lbls = torch.cat([self.cv4[i](x[i]).view(bs, self.ne, -1) for i in range(self.nl)], 2)  # label logits
-        lbls = lbls.sigmoid() # normalize
+        attrs = torch.cat([self.cv4[i](x[i]).view(bs, self.ne, -1) for i in range(self.nl)], 2)  # label logits
+        attrs = attrs.sigmoid() # normalize
         x = Detect.forward(self, x)
         if self.training:
-            return x, lbls
-        return torch.cat([x, lbls], 1) if self.export else (torch.cat([x[0], lbls], 1), (x[1], lbls))
+            return x, attrs
+        return torch.cat([x, attrs], 1) if self.export else (torch.cat([x[0], attrs], 1), (x[1], attrs))
 
 
 class Classify(nn.Module):

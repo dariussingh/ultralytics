@@ -3,21 +3,21 @@
 from copy import copy
 
 from ultralytics.models import yolo
-from ultralytics.nn.tasks import MLDModel
+from ultralytics.nn.tasks import MADModel
 from ultralytics.utils import DEFAULT_CFG, LOGGER
 from ultralytics.utils.plotting import plot_images, plot_results
 
 
-class MLDTrainer(yolo.detect.DetectionTrainer):
+class MADTrainer(yolo.detect.DetectionTrainer):
     """
-    A class extending the DetectionTrainer class for training based on a multilabel detection model.
+    A class extending the DetectionTrainer class for training based on a multi-attribute detection model.
 
     Example:
         ```python
-        from ultralytics.models.yolo.mld import MLDTrainer
+        from ultralytics.models.yolo.mad import MADTrainer
 
-        args = dict(model="yolov8n-mld.pt", data="coco8-mld.yaml", epochs=3)
-        trainer = MLDTrainer(overrides=args)
+        args = dict(model="yolov8n-mad.pt", data="coco8-MAD.yaml", epochs=3)
+        trainer = MADTrainer(overrides=args)
         trainer.train()
         ```
     """
@@ -26,27 +26,27 @@ class MLDTrainer(yolo.detect.DetectionTrainer):
         """Initialize a PoseTrainer object with specified configurations and overrides."""
         if overrides is None:
             overrides = {}
-        overrides["task"] = "mld"
+        overrides["task"] = "MAD"
         super().__init__(cfg, overrides, _callbacks)
 
 
     def get_model(self, cfg=None, weights=None, verbose=True):
         """Get pose estimation model with specified configuration and weights."""
-        model = MLDModel(cfg, ch=3, nc=self.data["nc"], data_nlbl=self.data["nlbl"], verbose=verbose)
+        model = MADModel(cfg, ch=3, nc=self.data["nc"], data_nattr=self.data["nattr"], verbose=verbose)
         if weights:
             model.load(weights)
 
         return model
 
     def set_model_attributes(self):
-        """Sets num labels attribute of MLDModel."""
+        """Sets num attributes for MADModel."""
         super().set_model_attributes()
-        self.model.nlbl = self.data["nlbl"]
+        self.model.nattr = self.data["nattr"]
 
     def get_validator(self):
         """Returns an instance of the PoseValidator class for validation."""
-        self.loss_names = "box_loss", "lbl_loss", "cls_loss", "dfl_loss"
-        return yolo.mld.MLDValidator(
+        self.loss_names = "box_loss", "attr_loss", "cls_loss", "dfl_loss"
+        return yolo.mad.MADValidator(
             self.test_loader, save_dir=self.save_dir, args=copy(self.args), _callbacks=self.callbacks
         )
 
