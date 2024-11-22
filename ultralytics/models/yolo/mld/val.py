@@ -8,41 +8,37 @@ import torch
 from ultralytics.models.yolo.detect import DetectionValidator
 from ultralytics.utils import LOGGER, ops
 from ultralytics.utils.checks import check_requirements
-from ultralytics.utils.metrics import OKS_SIGMA, PoseMetrics, box_iou, kpt_iou
+from ultralytics.utils.metrics import OKS_SIGMA, MLDMetrics, box_iou, kpt_iou
 from ultralytics.utils.plotting import output_to_target, plot_images
 
 
-class PoseValidator(DetectionValidator):
+class MLDValidator(DetectionValidator):
     """
-    A class extending the DetectionValidator class for validation based on a pose model.
+    A class extending the DetectionValidator class for validation based on a mld model.
 
     Example:
         ```python
-        from ultralytics.models.yolo.pose import PoseValidator
+        from ultralytics.models.yolo.mld import MLDValidator
 
-        args = dict(model="yolov8n-pose.pt", data="coco8-pose.yaml")
-        validator = PoseValidator(args=args)
+        args = dict(model="yolov8n-mld.pt", data="coco8-mld.yaml")
+        validator = MLDValidator(args=args)
         validator()
         ```
     """
 
     def __init__(self, dataloader=None, save_dir=None, pbar=None, args=None, _callbacks=None):
-        """Initialize a 'PoseValidator' object with custom parameters and assigned attributes."""
+        """Initialize a 'MLDValidator' object with custom parameters and assigned attributes."""
         super().__init__(dataloader, save_dir, pbar, args, _callbacks)
         self.sigma = None
-        self.kpt_shape = None
-        self.args.task = "pose"
-        self.metrics = PoseMetrics(save_dir=self.save_dir, on_plot=self.on_plot)
-        if isinstance(self.args.device, str) and self.args.device.lower() == "mps":
-            LOGGER.warning(
-                "WARNING ⚠️ Apple MPS known Pose bug. Recommend 'device=cpu' for Pose models. "
-                "See https://github.com/ultralytics/ultralytics/issues/4031."
-            )
+        self.nlbl = None
+        self.args.task = "mld"
+        self.metrics = MLDMetrics(save_dir=self.save_dir, on_plot=self.on_plot)
+
 
     def preprocess(self, batch):
-        """Preprocesses the batch by converting the 'keypoints' data into a float and moving it to the device."""
+        """Preprocesses the batch by converting the 'lbls' data into a float and moving it to the device."""
         batch = super().preprocess(batch)
-        batch["keypoints"] = batch["keypoints"].to(self.device).float()
+        batch["lbls"] = batch["lbls"].to(self.device).float()
         return batch
 
     def get_desc(self):
@@ -55,10 +51,8 @@ class PoseValidator(DetectionValidator):
             "R",
             "mAP50",
             "mAP50-95)",
-            "Pose(P",
-            "R",
-            "mAP50",
-            "mAP50-95)",
+            "Label(P",
+            "R)",
         )
 
     def postprocess(self, preds):
@@ -68,59 +62,61 @@ class PoseValidator(DetectionValidator):
             self.args.conf,
             self.args.iou,
             labels=self.lb,
+            nc=self.nc,
             multi_label=True,
             agnostic=self.args.single_cls or self.args.agnostic_nms,
             max_det=self.args.max_det,
-            nc=self.nc,
         )
 
     def init_metrics(self, model):
-        """Initiate pose estimation metrics for YOLO model."""
+        """Initiate mld metrics for YOLO model."""
         super().init_metrics(model)
-        self.kpt_shape = self.data["kpt_shape"]
-        is_pose = self.kpt_shape == [17, 3]
-        nkpt = self.kpt_shape[0]
-        self.sigma = OKS_SIGMA if is_pose else np.ones(nkpt) / nkpt
+        self.nlbl = self.data["nlbl"]
         self.stats = dict(tp_p=[], tp=[], conf=[], pred_cls=[], target_cls=[], target_img=[])
 
     def _prepare_batch(self, si, batch):
-        """Prepares a batch for processing by converting keypoints to float and moving to device."""
+        """Prepares a batch for processing by converting labels to float and moving to device."""
         pbatch = super()._prepare_batch(si, batch)
-        kpts = batch["keypoints"][batch["batch_idx"] == si]
-        h, w = pbatch["imgsz"]
-        kpts = kpts.clone()
-        kpts[..., 0] *= w
-        kpts[..., 1] *= h
-        kpts = ops.scale_coords(pbatch["imgsz"], kpts, pbatch["ori_shape"], ratio_pad=pbatch["ratio_pad"])
-        pbatch["kpts"] = kpts
+        lbls = batch["lbls"][batch["batch_idx"] == si]
+        pbatch["lbls"] = lbls
         return pbatch
 
     def _prepare_pred(self, pred, pbatch):
         """Prepares and scales keypoints in a batch for pose processing."""
         predn = super()._prepare_pred(pred, pbatch)
-        nk = pbatch["kpts"].shape[1]
-        pred_kpts = predn[:, 6:].view(len(predn), nk, -1)
-        ops.scale_coords(pbatch["imgsz"], pred_kpts, pbatch["ori_shape"], ratio_pad=pbatch["ratio_pad"])
-        return predn, pred_kpts
 
-    def update_metrics(self, preds, batch):
-        """Metrics."""
+        # Extract and reshape binary labels from predictions
+        pred_labels = predn[:, -self.nlbl:].view(len(predn), self.nlbl, -1)  # Extract last `nlbl` dimensions
+
+        return predn, pred_labels
+
+    def update_metrics_binary(self, preds, batch):
+        """
+        Update metrics for binary labels.
+
+        Args:
+            preds (list[torch.Tensor]): List of predictions for each image in the batch.
+            batch (dict): Dictionary containing the batch data, including ground truth information.
+
+        Returns:
+            None
+        """
         for si, pred in enumerate(preds):
             self.seen += 1
-            npr = len(pred)
+            npr = len(pred)  # Number of predictions
             stat = dict(
                 conf=torch.zeros(0, device=self.device),
                 pred_cls=torch.zeros(0, device=self.device),
                 tp=torch.zeros(npr, self.niou, dtype=torch.bool, device=self.device),
-                tp_p=torch.zeros(npr, self.niou, dtype=torch.bool, device=self.device),
             )
             pbatch = self._prepare_batch(si, batch)
-            cls, bbox = pbatch.pop("cls"), pbatch.pop("bbox")
-            nl = len(cls)
+            cls, bbox, gt_labels = pbatch.pop("cls"), pbatch.pop("bbox"), pbatch.pop("lbls")
+            nl = len(cls)  # Number of ground truth labels
             stat["target_cls"] = cls
             stat["target_img"] = cls.unique()
-            if npr == 0:
-                if nl:
+
+            if npr == 0:  # No predictions
+                if nl:  # There are ground truth labels
                     for k in self.stats.keys():
                         self.stats[k].append(stat[k])
                     if self.args.plots:
@@ -129,15 +125,14 @@ class PoseValidator(DetectionValidator):
 
             # Predictions
             if self.args.single_cls:
-                pred[:, 5] = 0
-            predn, pred_kpts = self._prepare_pred(pred, pbatch)
+                pred[:, 5] = 0  # Set all predictions to the same class
+            predn, pred_labels = self._prepare_pred(pred, pbatch)
             stat["conf"] = predn[:, 4]
             stat["pred_cls"] = predn[:, 5]
 
             # Evaluate
             if nl:
-                stat["tp"] = self._process_batch(predn, bbox, cls)
-                stat["tp_p"] = self._process_batch(predn, bbox, cls, pred_kpts, pbatch["kpts"])
+                stat["tp"] = self._process_batch(predn, bbox, cls, pred_labels, gt_labels)
             if self.args.plots:
                 self.confusion_matrix.process_batch(predn, bbox, cls)
 
@@ -150,15 +145,16 @@ class PoseValidator(DetectionValidator):
             if self.args.save_txt:
                 self.save_one_txt(
                     predn,
-                    pred_kpts,
+                    pred_labels,
                     self.args.save_conf,
                     pbatch["ori_shape"],
                     self.save_dir / "labels" / f'{Path(batch["im_file"][si]).stem}.txt',
                 )
 
-    def _process_batch(self, detections, gt_bboxes, gt_cls, pred_kpts=None, gt_kpts=None):
+
+    def _process_batch(self, detections, gt_bboxes, gt_cls, pred_labels, gt_labels):
         """
-        Return correct prediction matrix by computing Intersection over Union (IoU) between detections and ground truth.
+        Compute the correct prediction matrix by comparing predicted binary labels with ground truth labels.
 
         Args:
             detections (torch.Tensor): Tensor with shape (N, 6) representing detection boxes and scores, where each
@@ -166,12 +162,11 @@ class PoseValidator(DetectionValidator):
             gt_bboxes (torch.Tensor): Tensor with shape (M, 4) representing ground truth bounding boxes, where each
                 box is of the format (x1, y1, x2, y2).
             gt_cls (torch.Tensor): Tensor with shape (M,) representing ground truth class indices.
-            pred_kpts (torch.Tensor | None): Optional tensor with shape (N, 51) representing predicted keypoints, where
-                51 corresponds to 17 keypoints each having 3 values.
-            gt_kpts (torch.Tensor | None): Optional tensor with shape (N, 51) representing ground truth keypoints.
+            pred_labels (torch.Tensor): Tensor with shape (N, nlbl) representing predicted binary labels.
+            gt_labels (torch.Tensor): Tensor with shape (M, nlbl) representing ground truth binary labels.
 
         Returns:
-            torch.Tensor: A tensor with shape (N, 10) representing the correct prediction matrix for 10 IoU levels,
+            torch.Tensor: A tensor with shape (N, 10) representing the correct prediction matrix for 10 thresholds,
                 where N is the number of detections.
 
         Example:
@@ -179,36 +174,39 @@ class PoseValidator(DetectionValidator):
             detections = torch.rand(100, 6)  # 100 predictions: (x1, y1, x2, y2, conf, class)
             gt_bboxes = torch.rand(50, 4)  # 50 ground truth boxes: (x1, y1, x2, y2)
             gt_cls = torch.randint(0, 2, (50,))  # 50 ground truth class indices
-            pred_kpts = torch.rand(100, 51)  # 100 predicted keypoints
-            gt_kpts = torch.rand(50, 51)  # 50 ground truth keypoints
-            correct_preds = _process_batch(detections, gt_bboxes, gt_cls, pred_kpts, gt_kpts)
+            pred_labels = torch.rand(100, 4)  # 100 predicted binary labels for 4 outputs
+            gt_labels = torch.randint(0, 2, (50, 4))  # 50 ground truth binary labels for 4 outputs
+            correct_preds = _process_batch(detections, gt_bboxes, gt_cls, pred_labels, gt_labels)
             ```
-
-        Note:
-            `0.53` scale factor used in area computation is referenced from https://github.com/jin-s13/xtcocoapi/blob/master/xtcocotools/cocoeval.py#L384.
         """
-        if pred_kpts is not None and gt_kpts is not None:
-            # `0.53` is from https://github.com/jin-s13/xtcocoapi/blob/master/xtcocotools/cocoeval.py#L384
-            area = ops.xyxy2xywh(gt_bboxes)[:, 2:].prod(1) * 0.53
-            iou = kpt_iou(gt_kpts, pred_kpts, sigma=self.sigma, area=area)
-        else:  # boxes
-            iou = box_iou(gt_bboxes, detections[:, :4])
+        # Compute IoU for bounding boxes
+        iou = box_iou(gt_bboxes, detections[:, :4])
 
-        return self.match_predictions(detections[:, 5], gt_cls, iou)
+        # Calculate label agreement (binary classification)
+        label_agreement = (pred_labels.unsqueeze(1) == gt_labels.unsqueeze(0)).float()  # (N, M, nlbl)
 
-    def plot_val_samples(self, batch, ni):
-        """Plots and saves validation set samples with predicted bounding boxes and keypoints."""
-        plot_images(
-            batch["img"],
-            batch["batch_idx"],
-            batch["cls"].squeeze(-1),
-            batch["bboxes"],
-            kpts=batch["keypoints"],
-            paths=batch["im_file"],
-            fname=self.save_dir / f"val_batch{ni}_labels.jpg",
-            names=self.names,
-            on_plot=self.on_plot,
-        )
+        # Aggregate binary labels agreement over all outputs
+        label_score = label_agreement.mean(-1)  # Average agreement over `nlbl`, shape (N, M)
+
+        # Combine IoU and label score to get a final correctness matrix
+        correct_matrix = iou * label_score  # Shape: (N, M)
+
+        return self.match_predictions(detections[:, 5], gt_cls, correct_matrix)
+
+
+    # def plot_val_samples(self, batch, ni):
+    #     """Plots and saves validation set samples with predicted bounding boxes and keypoints."""
+    #     plot_images(
+    #         batch["img"],
+    #         batch["batch_idx"],
+    #         batch["cls"].squeeze(-1),
+    #         batch["bboxes"],
+    #         kpts=batch["keypoints"],
+    #         paths=batch["im_file"],
+    #         fname=self.save_dir / f"val_batch{ni}_labels.jpg",
+    #         names=self.names,
+    #         on_plot=self.on_plot,
+    #     )
 
     def plot_predictions(self, batch, preds, ni):
         """Plots predictions for YOLO model."""
@@ -216,14 +214,13 @@ class PoseValidator(DetectionValidator):
         plot_images(
             batch["img"],
             *output_to_target(preds, max_det=self.args.max_det),
-            kpts=pred_kpts,
             paths=batch["im_file"],
             fname=self.save_dir / f"val_batch{ni}_pred.jpg",
             names=self.names,
             on_plot=self.on_plot,
         )  # pred
 
-    def save_one_txt(self, predn, pred_kpts, save_conf, shape, file):
+    def save_one_txt(self, predn, pred_lbls, save_conf, shape, file):
         """Save YOLO detections to a txt file in normalized coordinates in a specific format."""
         from ultralytics.engine.results import Results
 
@@ -232,7 +229,7 @@ class PoseValidator(DetectionValidator):
             path=None,
             names=self.names,
             boxes=predn[:, :6],
-            keypoints=pred_kpts,
+            labels=pred_lbls,
         ).save_txt(file, save_conf=save_conf)
 
     def pred_to_json(self, predn, filename):
@@ -247,36 +244,60 @@ class PoseValidator(DetectionValidator):
                     "image_id": image_id,
                     "category_id": self.class_map[int(p[5])],
                     "bbox": [round(x, 3) for x in b],
-                    "keypoints": p[6:],
+                    "labels": p[6:],
                     "score": round(p[4], 5),
                 }
             )
 
     def eval_json(self, stats):
-        """Evaluates object detection model using COCO JSON format."""
-        if self.args.save_json and self.is_coco and len(self.jdict):
-            anno_json = self.data["path"] / "annotations/person_keypoints_val2017.json"  # annotations
-            pred_json = self.save_dir / "predictions.json"  # predictions
-            LOGGER.info(f"\nEvaluating pycocotools mAP using {pred_json} and {anno_json}...")
-            try:  # https://github.com/cocodataset/cocoapi/blob/master/PythonAPI/pycocoEvalDemo.ipynb
-                check_requirements("pycocotools>=2.0.6")
-                from pycocotools.coco import COCO  # noqa
-                from pycocotools.cocoeval import COCOeval  # noqa
+        """Evaluates YOLO output in JSON format and returns performance statistics for multiple binary labels."""
+        if self.args.save_json and self.is_dota and len(self.jdict):
+            import json
+            from collections import defaultdict
 
-                for x in anno_json, pred_json:
-                    assert x.is_file(), f"{x} file not found"
-                anno = COCO(str(anno_json))  # init annotations api
-                pred = anno.loadRes(str(pred_json))  # init predictions api (must pass string, not Path)
-                for i, eval in enumerate([COCOeval(anno, pred, "bbox"), COCOeval(anno, pred, "keypoints")]):
-                    if self.is_coco:
-                        eval.params.imgIds = [int(Path(x).stem) for x in self.dataloader.dataset.im_files]  # im to eval
-                    eval.evaluate()
-                    eval.accumulate()
-                    eval.summarize()
-                    idx = i * 4 + 2
-                    stats[self.metrics.keys[idx + 1]], stats[self.metrics.keys[idx]] = eval.stats[
-                        :2
-                    ]  # update mAP50-95 and mAP50
-            except Exception as e:
-                LOGGER.warning(f"pycocotools unable to run: {e}")
+            pred_json = self.save_dir / "predictions.json"  # predictions
+            pred_txt = self.save_dir / "predictions_txt"  # predictions
+            pred_txt.mkdir(parents=True, exist_ok=True)
+            data = json.load(open(pred_json))  # Load prediction data in JSON format
+
+            # Save split results for multiple binary labels
+            LOGGER.info(f"Saving predictions with DOTA format to {pred_txt}...")
+            for d in data:
+                image_id = d["image_id"]
+                score = d["score"]
+                classname = self.names[d["category_id"]].replace(" ", "-")
+                labels = d["labels"]  # Assuming 'labels' is a list of binary values (e.g., [1, 0, 1, 0])
+
+                # Save the labels and score in a format suitable for DOTA (task 1)
+                with open(f'{pred_txt / f"Task1_{classname}"}.txt', "a") as f:
+                    label_str = " ".join(map(str, labels))  # Convert the list of labels to a space-separated string
+                    f.writelines(f"{image_id} {score} {label_str}\n")  # Save image_id, score, and labels as a string
+
+            # Save merged results for multiple binary labels (if necessary)
+            pred_merged_txt = self.save_dir / "predictions_merged_txt"  # merged predictions
+            pred_merged_txt.mkdir(parents=True, exist_ok=True)
+            merged_results = defaultdict(list)
+
+            LOGGER.info(f"Saving merged predictions with DOTA format to {pred_merged_txt}...")
+            for d in data:
+                image_id = d["image_id"].split("__")[0]
+                labels = d["labels"]  # List of binary labels
+                score = d["score"]
+                cls = d["category_id"]
+
+                # Append labels, score, and class to merged results
+                merged_results[image_id].append([labels, score, cls])
+
+            # Process merged results and save them
+            for image_id, results in merged_results.items():
+                for result in results:
+                    labels, score, cls = result
+                    classname = self.names[cls].replace(" ", "-")
+
+                    # Save the merged prediction results for multiple binary labels
+                    with open(f'{pred_merged_txt / f"Task1_{classname}"}.txt', "a") as f:
+                        label_str = " ".join(map(str, labels))  # Convert the list of labels to a space-separated string
+                        f.writelines(f"{image_id} {score} {label_str}\n")  # Save image_id, score, and labels
+
         return stats
+

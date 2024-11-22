@@ -435,8 +435,13 @@ class PoseModel(DetectionModel):
 class MLDModel(DetectionModel):
     """YOLOv8 Multi Label Detection (MLD) model."""
 
-    def __init__(self, cfg="yolov8n-mld.yaml", ch=3, nc=None, verbose=True):
+    def __init__(self, cfg="yolov8n-mld.yaml", ch=3, nc=None, data_nlbl=None, verbose=True):
         """Initialize YOLOv8 MLD model with given config and parameters."""
+        if not isinstance(cfg, dict):
+            cfg = yaml_model_load(cfg)
+        if data_nlbl and data_nlbl != list(cfg["nlbl"]):
+            LOGGER.info(f"Overriding model.yaml nlbl={cfg['nlbl']} with nlbl={data_nlbl}")
+            cfg["nlbl"] = data_nlbl
         super().__init__(cfg=cfg, ch=ch, nc=nc, verbose=verbose)
 
     def init_criterion(self):
