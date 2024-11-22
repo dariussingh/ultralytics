@@ -31,7 +31,7 @@ class MADValidator(DetectionValidator):
         super().__init__(dataloader, save_dir, pbar, args, _callbacks)
         self.sigma = None
         self.nattr = None
-        self.args.task = "MAD"
+        self.args.task = "mad"
         self.metrics = MADMetrics(save_dir=self.save_dir, on_plot=self.on_plot)
 
 

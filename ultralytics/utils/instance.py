@@ -189,6 +189,7 @@ class Instances:
     Attributes:
         _bboxes (Bboxes): Internal object for handling bounding box operations.
         keypoints (ndarray): keypoints(x, y, visible) with shape [N, 17, 3]. Default is None.
+        attributes (ndarray): attributes with shape [N, nattr]. Default is None.
         normalized (bool): Flag indicating whether the bounding box coordinates are normalized.
         segments (ndarray): Segments array with shape [N, 1000, 2] after resampling.
 
@@ -196,6 +197,7 @@ class Instances:
         bboxes (ndarray): An array of bounding boxes with shape [N, 4].
         segments (list | ndarray, optional): A list or array of object segments. Default is None.
         keypoints (ndarray, optional): An array of keypoints with shape [N, 17, 3]. Default is None.
+        attributes (ndarray, optional): attributes with shape [N, nattr]. Default is None.
         bbox_format (str, optional): The format of bounding boxes ('xywh' or 'xyxy'). Default is 'xywh'.
         normalized (bool, optional): Whether the bounding box coordinates are normalized. Default is True.
 
@@ -214,7 +216,7 @@ class Instances:
         This class does not perform input validation, and it assumes the inputs are well-formed.
     """
 
-    def __init__(self, bboxes, segments=None, keypoints=None, bbox_format="xywh", normalized=True) -> None:
+    def __init__(self, bboxes, segments=None, keypoints=None, attributes=None, bbox_format="xywh", normalized=True) -> None:
         """
         Initialize the object with bounding boxes, segments, and keypoints.
 
@@ -222,6 +224,7 @@ class Instances:
             bboxes (np.ndarray): Bounding boxes, shape [N, 4].
             segments (list | np.ndarray, optional): Segmentation masks. Defaults to None.
             keypoints (np.ndarray, optional): Keypoints, shape [N, 17, 3] and format (x, y, visible). Defaults to None.
+            attributes (ndarray): attributes with shape [N, nattr]. Default is None.
             bbox_format (str, optional): Format of bboxes. Defaults to "xywh".
             normalized (bool, optional): Whether the coordinates are normalized. Defaults to True.
         """
@@ -229,6 +232,7 @@ class Instances:
         self.keypoints = keypoints
         self.normalized = normalized
         self.segments = segments
+        self.attributes = attributes
 
     def convert_bbox(self, format):
         """Convert bounding box format."""
@@ -302,12 +306,14 @@ class Instances:
         """
         segments = self.segments[index] if len(self.segments) else self.segments
         keypoints = self.keypoints[index] if self.keypoints is not None else None
+        attributes = self.attributes[index] if self.attributes is not None else None
         bboxes = self.bboxes[index]
         bbox_format = self._bboxes.format
         return Instances(
             bboxes=bboxes,
             segments=segments,
             keypoints=keypoints,
+            attributes=attributes,
             bbox_format=bbox_format,
             normalized=self.normalized,
         )

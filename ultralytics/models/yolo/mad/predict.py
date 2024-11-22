@@ -21,9 +21,9 @@ class MADPredictor(DetectionPredictor):
     """
 
     def __init__(self, cfg=DEFAULT_CFG, overrides=None, _callbacks=None):
-        """Initializes MADPredictor, sets task to 'MAD'"""
+        """Initializes MADPredictor, sets task to 'mad'"""
         super().__init__(cfg, overrides, _callbacks)
-        self.args.task = "MAD"
+        self.args.task = "mad"
         
     def postprocess(self, preds, img, orig_imgs):
         """Return detection results for a given input image or list of images, with multiple binary attributes."""

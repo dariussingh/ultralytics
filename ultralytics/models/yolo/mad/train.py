@@ -26,7 +26,7 @@ class MADTrainer(yolo.detect.DetectionTrainer):
         """Initialize a PoseTrainer object with specified configurations and overrides."""
         if overrides is None:
             overrides = {}
-        overrides["task"] = "MAD"
+        overrides["task"] = "mad"
         super().__init__(cfg, overrides, _callbacks)
 
 

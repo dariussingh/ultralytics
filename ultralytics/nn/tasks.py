@@ -439,7 +439,7 @@ class MADModel(DetectionModel):
         """Initialize YOLOv8 MAD model with given config and parameters."""
         if not isinstance(cfg, dict):
             cfg = yaml_model_load(cfg)
-        if data_nattr and data_nattr != list(cfg["nattr"]):
+        if data_nattr and data_nattr != cfg["nattr"]:
             LOGGER.info(f"Overriding model.yaml nattr={cfg['nattr']} with nattr={data_nattr}")
             cfg["nattr"] = data_nattr
         super().__init__(cfg=cfg, ch=ch, nc=nc, verbose=verbose)
@@ -958,7 +958,7 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
     legacy = True  # backward compatibility for v3/v5/v8/v9 models
     max_channels = float("inf")
     nc, act, scales = (d.get(x) for x in ("nc", "activation", "scales"))
-    depth, width, kpt_shape = (d.get(x, 1.0) for x in ("depth_multiple", "width_multiple", "kpt_shape"))
+    depth, width, kpt_shape, nattr = (d.get(x, 1.0) for x in ("depth_multiple", "width_multiple", "kpt_shape", "nattr"))
     if scales:
         scale = d.get("scale")
         if not scale:
@@ -1155,8 +1155,8 @@ def guess_model_task(model):
             return "pose"
         if m == "obb":
             return "obb"
-        if m == "MAD":
-            return "MAD"
+        if m == "mad":
+            return "mad"
 
     # Guess from model cfg
     if isinstance(model, dict):
@@ -1180,7 +1180,7 @@ def guess_model_task(model):
             elif isinstance(m, OBB):
                 return "obb"
             elif isinstance(m, MAD):
-                return "MAD"
+                return "mad"
             elif isinstance(m, (Detect, WorldDetect, v10Detect)):
                 return "detect"
 
@@ -1195,14 +1195,14 @@ def guess_model_task(model):
             return "pose"
         elif "-obb" in model.stem or "obb" in model.parts:
             return "obb"
-        elif "-MAD" in model.stem or "MAD" in model.parts:
-            return "MAD"
+        elif "-mad" in model.stem or "mad" in model.parts:
+            return "mad"
         elif "detect" in model.parts:
             return "detect"
 
     # Unable to determine task from model
     LOGGER.warning(
         "WARNING ⚠️ Unable to automatically guess model task, assuming 'task=detect'. "
-        "Explicitly define task for your model, i.e. 'task=detect', 'segment', 'classify','pose', 'MAD' or 'obb'."
+        "Explicitly define task for your model, i.e. 'task=detect', 'segment', 'classify','pose', 'mad' or 'obb'."
     )
     return "detect"  # assume detect

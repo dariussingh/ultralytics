@@ -132,12 +132,11 @@ def verify_image_label(args):
                     points = lb[:, 5:].reshape(-1, ndim)[:, :2]
                 elif attribute:
                     assert lb.shape[1] == (5 + nattr), f"labels require {(5 + nattr)} columns each"
-                    attributes = lb[:, 5:]
+                    points = lb[:, 5:]
                 else:
                     assert lb.shape[1] == 5, f"labels require 5 columns, {lb.shape[1]} columns detected"
                     points = lb[:, 1:]
                 assert points.max() <= 1, f"non-normalized or out of bounds coordinates {points[points > 1]}"
-                assert attributes.max() <= 1, f"non-normalized or out of bounds coordinates {attributes[attributes > 1]}"
                 assert lb.min() >= 0, f"negative label values {lb[lb < 0]}"
 
                 # All labels
@@ -163,12 +162,14 @@ def verify_image_label(args):
             if ndim == 2:
                 kpt_mask = np.where((keypoints[..., 0] < 0) | (keypoints[..., 1] < 0), 0.0, 1.0).astype(np.float32)
                 keypoints = np.concatenate([keypoints, kpt_mask[..., None]], axis=-1)  # (nl, nkpt, 3)
+        if attribute:
+            attributes = lb[:, 5:]
         lb = lb[:, :5]
         return im_file, lb, shape, segments, keypoints, attributes, nm, nf, ne, nc, msg
     except Exception as e:
         nc = 1
         msg = f"{prefix}WARNING ⚠️ {im_file}: ignoring corrupt image/label: {e}"
-        return [None, None, None, None, None, nm, nf, ne, nc, msg]
+        return [None, None, None, None, None, None, nm, nf, ne, nc, msg]
 
 
 def polygon2mask(imgsz, polygons, color=1, downsample_ratio=1):
@@ -299,6 +300,9 @@ def check_det_dataset(dataset, autodownload=True):
         data["names"] = [f"class_{i}" for i in range(data["nc"])]
     else:
         data["nc"] = len(data["names"])
+        
+    if "attributes" in data:
+        data["nattr"] = len(data["attributes"])
 
     data["names"] = check_class_names(data["names"])
 
