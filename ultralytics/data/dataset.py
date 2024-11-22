@@ -59,6 +59,7 @@ class YOLODataset(BaseDataset):
         self.use_segments = task == "segment"
         self.use_keypoints = task == "pose"
         self.use_obb = task == "obb"
+        self.use_attributes = task == 'mad'
         self.data = data
         assert not (self.use_segments and self.use_keypoints), "Can not use both segments and keypoints."
         super().__init__(*args, **kwargs)
@@ -78,6 +79,7 @@ class YOLODataset(BaseDataset):
         desc = f"{self.prefix}Scanning {path.parent / path.stem}..."
         total = len(self.im_files)
         nkpt, ndim = self.data.get("kpt_shape", (0, 0))
+        nattr = self.data.get("nattr", 0)
         if self.use_keypoints and (nkpt <= 0 or ndim not in {2, 3}):
             raise ValueError(
                 "'kpt_shape' in data.yaml missing or incorrect. Should be a list with [number of "
@@ -91,13 +93,15 @@ class YOLODataset(BaseDataset):
                     self.label_files,
                     repeat(self.prefix),
                     repeat(self.use_keypoints),
+                    repeat(self.use_attributes),
                     repeat(len(self.data["names"])),
                     repeat(nkpt),
                     repeat(ndim),
+                    repeat(nattr),
                 ),
             )
             pbar = TQDM(results, desc=desc, total=total)
-            for im_file, lb, shape, segments, keypoint, nm_f, nf_f, ne_f, nc_f, msg in pbar:
+            for im_file, lb, shape, segments, keypoint, attribute, nm_f, nf_f, ne_f, nc_f, msg in pbar:
                 nm += nm_f
                 nf += nf_f
                 ne += ne_f
@@ -111,6 +115,7 @@ class YOLODataset(BaseDataset):
                             "bboxes": lb[:, 1:],  # n, 4
                             "segments": segments,
                             "keypoints": keypoint,
+                            "attributes": attribute,
                             "normalized": True,
                             "bbox_format": "xywh",
                         }
