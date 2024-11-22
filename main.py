@@ -1,9 +1,9 @@
 from ultralytics import YOLO
 
-model = YOLO("yolo11n.pt")
+model = YOLO(".\\ultralytics\\cfg\\models\\11\\yolo11-mad.yaml")
 
-model.train(data="./datasets/coco8.yaml", epochs=1)
+model.train(data=".\\ultralytics\\cfg\\datasets\\coco-mad.yaml", epochs=1)
 
-model.val(data="./datasets/coco8.yaml")
+# model.val(data=".\\ultralytics\\cfg\\datasets\\coco-mad.yaml")
 
-model.predict("./ultralytics/assets/bus.jpg")
+# model.predict("./ultralytics/assets/bus.jpg")
