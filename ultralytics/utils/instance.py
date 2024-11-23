@@ -367,15 +367,19 @@ class Instances:
                 self.segments = self.segments[good]
             if self.keypoints is not None:
                 self.keypoints = self.keypoints[good]
+            if self.attributes is not None:
+                self.attributes = self.attributes[good]
         return good
 
-    def update(self, bboxes, segments=None, keypoints=None):
+    def update(self, bboxes, segments=None, keypoints=None, attributes=None):
         """Updates instance variables."""
         self._bboxes = Bboxes(bboxes, format=self._bboxes.format)
         if segments is not None:
             self.segments = segments
         if keypoints is not None:
             self.keypoints = keypoints
+        if attributes is not None:
+            self.attributes = attributes
 
     def __len__(self):
         """Return the length of the instance list."""
@@ -408,13 +412,15 @@ class Instances:
             return instances_list[0]
 
         use_keypoint = instances_list[0].keypoints is not None
+        use_attribute = instances_list[0].attributes is not None
         bbox_format = instances_list[0]._bboxes.format
         normalized = instances_list[0].normalized
 
         cat_boxes = np.concatenate([ins.bboxes for ins in instances_list], axis=axis)
         cat_segments = np.concatenate([b.segments for b in instances_list], axis=axis)
         cat_keypoints = np.concatenate([b.keypoints for b in instances_list], axis=axis) if use_keypoint else None
-        return cls(cat_boxes, cat_segments, cat_keypoints, bbox_format, normalized)
+        cat_attributes =  np.concatenate([b.attributes for b in instances_list], axis=axis) if use_attribute else None
+        return cls(cat_boxes, cat_segments, cat_keypoints, cat_attributes, bbox_format, normalized)
 
     @property
     def bboxes(self):

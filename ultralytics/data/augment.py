@@ -1237,13 +1237,14 @@ class RandomPerspective:
 
         segments = instances.segments
         keypoints = instances.keypoints
+        attributes = instances.attributes
         # Update bboxes if there are segments.
         if len(segments):
             bboxes, segments = self.apply_segments(segments, M)
 
         if keypoints is not None:
             keypoints = self.apply_keypoints(keypoints, M)
-        new_instances = Instances(bboxes, segments, keypoints, bbox_format="xyxy", normalized=False)
+        new_instances = Instances(bboxes, segments, keypoints, attributes, bbox_format="xyxy", normalized=False)
         # Clip
         new_instances.clip(*self.size)
 
@@ -2019,7 +2020,7 @@ class Format:
             labels (Dict): A dictionary containing image and annotation data with the following keys:
                 - 'img': The input image as a numpy array.
                 - 'cls': Class labels for instances.
-                - 'instances': An Instances object containing bounding boxes, segments, and keypoints.
+                - 'instances': An Instances object containing bounding boxes, segments, attributes, and keypoints.
 
         Returns:
             (Dict): A dictionary with formatted data, including:
