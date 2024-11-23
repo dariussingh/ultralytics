@@ -38,12 +38,12 @@ class MADValidator(DetectionValidator):
     def preprocess(self, batch):
         """Preprocesses the batch by converting the 'attrs' data into a float and moving it to the device."""
         batch = super().preprocess(batch)
-        batch["attrs"] = batch["attrs"].to(self.device).float()
+        batch["attributes"] = batch["attributes"].to(self.device).float()
         return batch
 
     def get_desc(self):
         """Returns description of evaluation metrics in string format."""
-        return ("%22s" + "%11s" * 10) % (
+        return ("%22s" + "%11s" * 8) % (
             "Class",
             "Images",
             "Instances",
@@ -72,13 +72,13 @@ class MADValidator(DetectionValidator):
         """Initiate MAD metrics for YOLO model."""
         super().init_metrics(model)
         self.nattr = self.data["nattr"]
-        self.stats = dict(tp_p=[], tp=[], conf=[], pred_cls=[], target_cls=[], target_img=[])
+        self.stats = dict(tp_a=[], tp=[], conf=[], pred_cls=[], target_cls=[], target_img=[])
 
     def _prepare_batch(self, si, batch):
         """Prepares a batch for processing by converting attributes to float and moving to device."""
         pbatch = super()._prepare_batch(si, batch)
-        attrs = batch["attrs"][batch["batch_idx"] == si]
-        pbatch["attrs"] = attrs
+        attributes = batch["attributes"][batch["batch_idx"] == si]
+        pbatch["attributes"] = attributes
         return pbatch
 
     def _prepare_pred(self, pred, pbatch):
@@ -86,37 +86,28 @@ class MADValidator(DetectionValidator):
         predn = super()._prepare_pred(pred, pbatch)
 
         # Extract and reshape binary attributes from predictions
-        pred_attributes = predn[:, -self.nattr:].view(len(predn), self.nattr, -1)  # Extract last `nattr` dimensions
+        pred_attrs = predn[:, -self.nattr:].view(len(predn), self.nattr, -1)  # Extract last `nattr` dimensions
 
-        return predn, pred_attributes
+        return predn, pred_attrs
 
     def update_metrics(self, preds, batch):
-        """
-        Update metrics for binary attributes.
-
-        Args:
-            preds (list[torch.Tensor]): List of predictions for each image in the batch.
-            batch (dict): Dictionary containing the batch data, including ground truth information.
-
-        Returns:
-            None
-        """
+        """Metrics."""
         for si, pred in enumerate(preds):
             self.seen += 1
-            npr = len(pred)  # Number of predictions
+            npr = len(pred)
             stat = dict(
                 conf=torch.zeros(0, device=self.device),
                 pred_cls=torch.zeros(0, device=self.device),
                 tp=torch.zeros(npr, self.niou, dtype=torch.bool, device=self.device),
+                tp_a=torch.zeros(npr, self.niou, dtype=torch.bool, device=self.device),
             )
             pbatch = self._prepare_batch(si, batch)
-            cls, bbox, gt_attributes = pbatch.pop("cls"), pbatch.pop("bbox"), pbatch.pop("attrs")
-            nl = len(cls)  # Number of ground truth labels
+            cls, bbox = pbatch.pop("cls"), pbatch.pop("bbox")
+            nl = len(cls)
             stat["target_cls"] = cls
             stat["target_img"] = cls.unique()
-
-            if npr == 0:  # No predictions
-                if nl:  # There are ground truth labels
+            if npr == 0:
+                if nl:
                     for k in self.stats.keys():
                         self.stats[k].append(stat[k])
                     if self.args.plots:
@@ -125,14 +116,16 @@ class MADValidator(DetectionValidator):
 
             # Predictions
             if self.args.single_cls:
-                pred[:, 5] = 0  # Set all predictions to the same class
-            predn, pred_attributes = self._prepare_pred(pred, pbatch)
+                pred[:, 5] = 0
+            predn, pred_attrs = self._prepare_pred(pred, pbatch)
+            pred_attrs = pred_attrs.squeeze(-1)
             stat["conf"] = predn[:, 4]
             stat["pred_cls"] = predn[:, 5]
 
             # Evaluate
             if nl:
-                stat["tp"] = self._process_batch(predn, bbox, cls, pred_attributes, gt_attributes)
+                stat["tp"] = self._process_batch(predn, bbox, cls)
+                stat["tp_a"] = self._process_batch(predn, bbox, cls, pred_attrs, pbatch["attributes"])
             if self.args.plots:
                 self.confusion_matrix.process_batch(predn, bbox, cls)
 
@@ -145,16 +138,17 @@ class MADValidator(DetectionValidator):
             if self.args.save_txt:
                 self.save_one_txt(
                     predn,
-                    pred_attributes,
+                    pred_attrs,
                     self.args.save_conf,
                     pbatch["ori_shape"],
                     self.save_dir / "labels" / f'{Path(batch["im_file"][si]).stem}.txt',
                 )
 
 
-    def _process_batch(self, detections, gt_bboxes, gt_cls, pred_attributes, gt_attributes):
+    def _process_batch(self, detections, gt_bboxes, gt_cls, pred_attrs=None, gt_attrs=None):
         """
-        Compute the correct prediction matrix by comparing predicted binary attributes with ground truth attributes.
+        Return correct prediction matrix by computing Intersection over Union (IoU) between detections and ground truth,
+        and finding true positives for multi-label (binary) classification.
 
         Args:
             detections (torch.Tensor): Tensor with shape (N, 6) representing detection boxes and scores, where each
@@ -162,36 +156,24 @@ class MADValidator(DetectionValidator):
             gt_bboxes (torch.Tensor): Tensor with shape (M, 4) representing ground truth bounding boxes, where each
                 box is of the format (x1, y1, x2, y2).
             gt_cls (torch.Tensor): Tensor with shape (M,) representing ground truth class indices.
-            pred_attributes (torch.Tensor): Tensor with shape (N, nattr) representing predicted binary attributes.
-            gt_attributes (torch.Tensor): Tensor with shape (M, nattr) representing ground truth binary attributes.
+            pred_attrs (torch.Tensor | None): Optional tensor with shape (N, K) representing predicted binary attributes
+                for K attributes.
+            gt_attrs (torch.Tensor | None): Optional tensor with shape (M, K) representing ground truth binary attributes
+                for K attributes.
 
         Returns:
-            torch.Tensor: A tensor with shape (N, 10) representing the correct prediction matrix for 10 thresholds,
+            torch.Tensor: A tensor with shape (N, 10) representing the correct prediction matrix for 10 IoU levels,
                 where N is the number of detections.
 
-        Example:
-            ```python
-            detections = torch.rand(100, 6)  # 100 predictions: (x1, y1, x2, y2, conf, class)
-            gt_bboxes = torch.rand(50, 4)  # 50 ground truth boxes: (x1, y1, x2, y2)
-            gt_cls = torch.randint(0, 2, (50,))  # 50 ground truth class indices
-            pred_attributes = torch.rand(100, 4)  # 100 predicted binary attributes for 4 outputs
-            gt_attributes = torch.randint(0, 2, (50, 4))  # 50 ground truth binary attributes for 4 outputs
-            correct_preds = _process_batch(detections, gt_bboxes, gt_cls, pred_attributes, gt_attributes)
-            ```
         """
-        # Compute IoU for bounding boxes
         iou = box_iou(gt_bboxes, detections[:, :4])
-
-        # Calculate attributes agreement (binary classification)
-        attribute_agreement = (pred_attributes.unsqueeze(1) == gt_attributes.unsqueeze(0)).float()  # (N, M, nattr)
-
-        # Aggregate binary attributes agreement over all outputs
-        attribute_score = attribute_agreement.mean(-1)  # Average agreement over `nattr`, shape (N, M)
-
-        # Combine IoU and attribute score to get a final correctness matrix
-        correct_matrix = iou * attribute_score  # Shape: (N, M)
-
-        return self.match_predictions(detections[:, 5], gt_cls, correct_matrix)
+        
+        if pred_attrs is not None and gt_attrs is not None:
+            pred_attrs = pred_attrs > 0.5
+            correct_attrs = (gt_attrs[:, None, :] == pred_attrs[None, :, :]).all(dim=-1)
+            iou = iou * correct_attrs
+        
+        return self.match_predictions(detections[:, 5], gt_cls, iou)
 
 
     # def plot_val_samples(self, batch, ni):
@@ -210,7 +192,6 @@ class MADValidator(DetectionValidator):
 
     def plot_predictions(self, batch, preds, ni):
         """Plots predictions for YOLO model."""
-        pred_kpts = torch.cat([p[:, 6:].view(-1, *self.kpt_shape) for p in preds], 0)
         plot_images(
             batch["img"],
             *output_to_target(preds, max_det=self.args.max_det),
