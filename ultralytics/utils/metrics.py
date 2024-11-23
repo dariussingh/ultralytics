@@ -1379,6 +1379,8 @@ class MADMetrics(SegmentMetrics):
             "metrics/mAP50-95(B)",
             "metrics/precision(A)",
             "metrics/recall(A)",
+            "metrics/mAP50(A)",
+            "metrics/mAP50-95(A)",
         ]
 
     def mean_results(self):
