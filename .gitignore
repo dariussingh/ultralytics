@@ -171,3 +171,7 @@ pnnx*
 
 # calibration image
 calibration_*.npy
+
+# custom
+main.py
+to-do.md
