@@ -665,7 +665,7 @@ class v8MADLoss(v8DetectionLoss):
             fg_attr_mask = fg_mask[:, :, None].repeat(1, 1, self.nattr)
             target_attrs = torch.where(fg_attr_mask > 0, target_attrs, 0)
 
-            loss[2] = self.bce_attr(pred_attrs, target_attrs)  # BCE loss for attributes
+            loss[1] = self.bce_attr(pred_attrs, target_attrs)  # BCE loss for attributes
 
         # Scale losses by respective hyperparameters
         loss[0] *= self.hyp.box  # box gain
