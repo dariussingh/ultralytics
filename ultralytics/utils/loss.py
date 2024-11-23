@@ -601,30 +601,29 @@ class v8PoseLoss(v8DetectionLoss):
     
     
 class v8MADLoss(v8DetectionLoss):
-    """Criterion class for computing training losses."""
+    """Criterion class for computing training losses for YOLO MAD."""
 
     def __init__(self, model):  # model must be de-paralleled
-        """Initializes v8Loss with model, sets attribute variables and declares a attribute loss instance."""
+        """Initializes v8MADLoss with model, sets attribute variables, and declares an attribute loss instance."""
         super().__init__(model)
-        self.nattr = model.model[-1].nattr
-        self.bce_attr = nn.BCELoss()
-        
+        self.nattr = model.model[-1].nattr  # number of attributes
+        self.bce_attr = nn.BCELoss()  # Binary Cross-Entropy for multi-label attributes
 
     def __call__(self, preds, batch):
         """Calculate the total loss and detach it."""
-        loss = torch.zeros(4, device=self.device)  # box, cls, dfl, attr
-        feats = preds if not isinstance(preds[0], list) else preds[1]
-        pred_distri, pred_scores, pred_attrs = torch.cat(
-            [xi.view(feats[0].shape[0], self.no, -1) for xi in feats], 2
-        ).split((self.reg_max * 4, self.nc, self.attr_dim), 1)
+        loss = torch.zeros(4, device=self.device)  # box, cls, attr, dfl
+        feats, pred_attrs = preds if isinstance(preds[0], list) else preds[1]
+        pred_distri, pred_scores = torch.cat([xi.view(feats[0].shape[0], self.no, -1) for xi in feats], 2).split(
+            (self.reg_max * 4, self.nc), 1
+        )
 
-        # B, grids, ..
+        # Permute dimensions for loss computation
         pred_scores = pred_scores.permute(0, 2, 1).contiguous()
         pred_distri = pred_distri.permute(0, 2, 1).contiguous()
         pred_attrs = pred_attrs.permute(0, 2, 1).contiguous()
 
         dtype = pred_scores.dtype
-        imgsz = torch.tensor(feats[0].shape[2:], device=self.device, dtype=dtype) * self.stride[0]  # image size (h,w)
+        imgsz = torch.tensor(feats[0].shape[2:], device=self.device, dtype=dtype) * self.stride[0]  # image size (h, w)
         anchor_points, stride_tensor = make_anchors(feats, self.stride, 0.5)
 
         # Targets
@@ -635,9 +634,10 @@ class v8MADLoss(v8DetectionLoss):
         gt_labels, gt_bboxes = targets.split((1, 4), 2)  # cls, xyxy
         mask_gt = gt_bboxes.sum(2, keepdim=True).gt_(0.0)
 
-        # Pboxes
+        # Predicted bounding boxes
         pred_bboxes = self.bbox_decode(anchor_points, pred_distri)  # xyxy, (b, h*w, 4)
 
+        # Assign targets to predictions
         _, target_bboxes, target_scores, fg_mask, target_gt_idx = self.assigner(
             pred_scores.detach().sigmoid(),
             (pred_bboxes.detach() * stride_tensor).type(gt_bboxes.dtype),
@@ -649,10 +649,10 @@ class v8MADLoss(v8DetectionLoss):
 
         target_scores_sum = max(target_scores.sum(), 1)
 
-        # Cls loss
-        loss[1] = self.bce(pred_scores, target_scores.to(dtype)).sum() / target_scores_sum  # BCE
+        # Class loss
+        loss[2] = self.bce(pred_scores, target_scores.to(dtype)).sum() / target_scores_sum  # BCE loss for classes
 
-        # Bbox loss
+        # Bounding box loss
         if fg_mask.sum():
             target_bboxes /= stride_tensor
             loss[0], loss[3] = self.bbox_loss(
@@ -660,17 +660,21 @@ class v8MADLoss(v8DetectionLoss):
             )
 
             # Attribute loss
-            gt_attrs = batch["attributes"].to(self.device).float()  # shape (N, num_attributes)
-            pred_attrs_fg = pred_attrs[fg_mask]  # Get predicted attributes for foreground
-            gt_attrs_fg = gt_attrs[fg_mask]  # Get ground truth attributes for foreground
-            loss[2] = self.bce_attr(pred_attrs_fg, gt_attrs_fg).sum() / max(fg_mask.sum(), 1)  # BCE loss for attributes
+            gt_attrs = batch["attributes"].to(self.device).float()  # shape (N, nattr)
+            target_attrs = gt_attrs.view(-1, gt_attrs.shape[-1])[target_gt_idx]
+            fg_attr_mask = fg_mask[:, :, None].repeat(1, 1, self.nattr)
+            target_attrs = torch.where(fg_attr_mask > 0, target_attrs, 0)
 
+            loss[2] = self.bce_attr(pred_attrs, target_attrs)  # BCE loss for attributes
+
+        # Scale losses by respective hyperparameters
         loss[0] *= self.hyp.box  # box gain
-        loss[1] *= self.hyp.cls  # cls gain
-        loss[2] *= self.hyp.attr  # attribute gain
+        loss[1] *= self.hyp.attr  # attribute gain
+        loss[2] *= self.hyp.cls  # cls gain
         loss[3] *= self.hyp.dfl  # dfl gain
 
-        return loss.sum() * batch_size, loss.detach()  # loss(box, cls, dfl, attr)
+        return loss.sum() * batch_size, loss.detach()  # loss(box, cls, attr, dfl)
+
 
 
 
