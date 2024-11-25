@@ -189,7 +189,7 @@ class Results(SimpleClass):
     A class for storing and manipulating inference results.
 
     This class encapsulates the functionality for handling detection, segmentation, pose estimation,
-    and classification results from YOLO models.
+    multilabel detection and classification results from YOLO models.
 
     Attributes:
         orig_img (numpy.ndarray): Original image as a numpy array.
@@ -199,6 +199,7 @@ class Results(SimpleClass):
         probs (Probs | None): Object containing class probabilities for classification tasks.
         keypoints (Keypoints | None): Object containing detected keypoints for each object.
         obb (OBB | None): Object containing oriented bounding boxes.
+        attributes (Attributes | None): Object containing attributes for each object.
         speed (Dict[str, float | None]): Dictionary of preprocess, inference, and postprocess speeds.
         names (Dict[int, str]): Dictionary mapping class IDs to class names.
         path (str): Path to the image file.
@@ -228,7 +229,7 @@ class Results(SimpleClass):
     """
 
     def __init__(
-        self, orig_img, path, names, boxes=None, masks=None, probs=None, keypoints=None, obb=None, speed=None
+        self, orig_img, path, names, boxes=None, masks=None, probs=None, keypoints=None, obb=None, attributes=None, speed=None
     ) -> None:
         """
         Initialize the Results class for storing and manipulating inference results.
@@ -241,6 +242,7 @@ class Results(SimpleClass):
             masks (torch.Tensor | None): A 3D tensor of detection masks, where each mask is a binary image.
             probs (torch.Tensor | None): A 1D tensor of probabilities of each class for classification task.
             keypoints (torch.Tensor | None): A 2D tensor of keypoint coordinates for each detection.
+            attributes (torch.Tensor | None): A 2D tensor of attributes for each detection.
             obb (torch.Tensor | None): A 2D tensor of oriented bounding box coordinates for each detection.
             speed (Dict | None): A dictionary containing preprocess, inference, and postprocess speeds (ms/image).
 
@@ -264,11 +266,12 @@ class Results(SimpleClass):
         self.probs = Probs(probs) if probs is not None else None
         self.keypoints = Keypoints(keypoints, self.orig_shape) if keypoints is not None else None
         self.obb = OBB(obb, self.orig_shape) if obb is not None else None
+        self.attributes = Attributes(attributes, self.orig_shape) if attributes is not None else None
         self.speed = speed if speed is not None else {"preprocess": None, "inference": None, "postprocess": None}
         self.names = names
         self.path = path
         self.save_dir = None
-        self._keys = "boxes", "masks", "probs", "keypoints", "obb"
+        self._keys = "boxes", "masks", "probs", "keypoints", "obb", "attributes"
 
     def __getitem__(self, idx):
         """
@@ -293,7 +296,7 @@ class Results(SimpleClass):
 
         Returns:
             (int): The number of detections, determined by the length of the first non-empty attribute
-                (boxes, masks, probs, keypoints, or obb).
+                (boxes, masks, probs, keypoints, attributes, or obb).
 
         Examples:
             >>> results = Results(orig_img, path, names, boxes=torch.rand(5, 4))
@@ -364,7 +367,7 @@ class Results(SimpleClass):
         """
         Returns a copy of the Results object with all its tensors moved to CPU memory.
 
-        This method creates a new Results object with all tensor attributes (boxes, masks, probs, keypoints, obb)
+        This method creates a new Results object with all tensor attributes (boxes, masks, probs, keypoints, attributes, obb)
         transferred to CPU memory. It's useful for moving data from GPU to CPU for further processing or saving.
 
         Returns:
@@ -685,7 +688,7 @@ class Results(SimpleClass):
             - The file will contain one line per detection or classification with the following structure:
               - For detections: `class confidence x_center y_center width height`
               - For classifications: `confidence class_name`
-              - For masks and keypoints, the specific formats will vary accordingly.
+              - For masks, keypoints, and attributes, the specific formats will vary accordingly.
             - The function will create the output directory if it does not exist.
             - If save_conf is False, the confidence scores will be excluded from the output.
             - Existing contents of the file will not be overwritten; new results will be appended.
@@ -695,6 +698,7 @@ class Results(SimpleClass):
         masks = self.masks
         probs = self.probs
         kpts = self.keypoints
+        attrs = self.attributes
         texts = []
         if probs is not None:
             # Classify
@@ -710,6 +714,9 @@ class Results(SimpleClass):
                 if kpts is not None:
                     kpt = torch.cat((kpts[j].xyn, kpts[j].conf[..., None]), 2) if kpts[j].has_visible else kpts[j].xyn
                     line += (*kpt.reshape(-1).tolist(),)
+                if attrs is not None:
+                    attr_values = attrs[j].tolist() if isinstance(attrs[j], torch.Tensor) else attrs[j]
+                    line += (*attr_values,)
                 line += (conf,) * save_conf + (() if id is None else (id,))
                 texts.append(("%g " * len(line)).rstrip() % line)
 
@@ -761,7 +768,7 @@ class Results(SimpleClass):
         This method creates a list of detection dictionaries, each containing information about a single
         detection or classification result. For classification tasks, it returns the top class and its
         confidence. For detection tasks, it includes class information, bounding box coordinates, and
-        optionally mask segments and keypoints.
+        optionally mask segments, attributes and keypoints.
 
         Args:
             normalize (bool): Whether to normalize bounding box coordinates by image dimensions. Defaults to False.
@@ -770,7 +777,7 @@ class Results(SimpleClass):
         Returns:
             (List[Dict]): A list of dictionaries, each containing summarized information for a single
                 detection or classification result. The structure of each dictionary varies based on the
-                task type (classification or detection) and available information (boxes, masks, keypoints).
+                task type (classification or detection) and available information (boxes, masks, keypoints, attributes).
 
         Examples:
             >>> results = model("image.jpg")
@@ -815,6 +822,13 @@ class Results(SimpleClass):
                     "y": (y / h).numpy().round(decimals).tolist(),
                     "visible": visible.numpy().round(decimals).tolist(),
                 }
+            if self.attributes is not None:
+                attr_values = (
+                    self.attributes[i].tolist()
+                    if isinstance(self.attributes[i], torch.Tensor)
+                    else self.attributes[i]
+                )
+                result["attributes"] = [round(attr, decimals) for attr in attr_values]
             results.append(result)
 
         return results
@@ -1739,3 +1753,88 @@ class OBB(BaseTensor):
             if isinstance(x, torch.Tensor)
             else np.stack([x.min(1), y.min(1), x.max(1), y.max(1)], -1)
         )
+        
+        
+class Attributes(BaseTensor):
+    """
+    A class for storing and manipulating multilabel attribute probabilities.
+
+    This class extends BaseTensor and provides methods for handling multilabel probabilities,
+    including retrieving positive labels based on thresholds and confidence scores.
+
+    Attributes:
+        data (torch.Tensor | numpy.ndarray): A 2D tensor or array of shape (num_objects, num_labels)
+            containing multilabel attribute probabilities.
+        orig_shape (tuple | None): The original input shape, if applicable (not used here).
+        positive_labels (List[List[int]]): Indices of active labels (those exceeding a confidence threshold).
+        positive_labels_conf (List[List[float]]): Confidence scores of active labels.
+
+    Methods:
+        cpu(): Returns a copy of the probabilities tensor on CPU memory.
+        numpy(): Returns a copy of the probabilities tensor as a numpy array.
+        cuda(): Returns a copy of the probabilities tensor on GPU memory.
+        to(*args, **kwargs): Returns a copy of the probabilities tensor with specified device and dtype.
+
+    Examples:
+        >>> probs = torch.tensor([[0.1, 0.7, 0.4], [0.9, 0.2, 0.8]])
+        >>> attr = Attributes(probs)
+        >>> print(attr.positive_labels)
+        [[1], [0, 2]]
+        >>> print(attr.positive_labels_conf)
+        [[0.7], [0.9, 0.8]]
+    """
+
+    def __init__(self, probs, orig_shape=None, threshold=0.5) -> None:
+        """
+        Initialize the Attributes class with multilabel probabilities.
+
+        Args:
+            probs (torch.Tensor | np.ndarray): A 2D tensor or array of shape (num_objects, num_labels)
+                containing multilabel probabilities.
+            orig_shape (tuple | None): The original input shape (optional).
+            threshold (float): The confidence threshold for active labels. Default is 0.5.
+
+        Attributes:
+            data (torch.Tensor | np.ndarray): The raw tensor or array containing multilabel probabilities.
+            threshold (float): Confidence threshold to consider a label active.
+        """
+        super().__init__(probs, orig_shape)
+        self.threshold = threshold
+
+    @property
+    @lru_cache(maxsize=1)
+    def positive_labels(self):
+        """
+        Returns the indices of labels with probabilities exceeding the threshold.
+
+        Returns:
+            List[List[int]]: A list of lists, where each inner list contains the indices of active labels
+            for a specific input in the batch.
+
+        Examples:
+            >>> probs = Attributes(torch.tensor([[0.1, 0.8, 0.6], [0.3, 0.9, 0.1]]))
+            >>> print(probs.positive_labels)
+            [[1, 2], [1]]
+        """
+        return [(self.data[i] > self.threshold).nonzero(as_tuple=True)[0].tolist() for i in range(self.data.shape[0])]
+
+    @property
+    @lru_cache(maxsize=1)
+    def positive_labels_conf(self):
+        """
+        Returns the confidence scores of labels exceeding the threshold.
+
+        Returns:
+            List[List[float]]: A list of lists, where each inner list contains the confidence scores
+            of active labels for a specific input in the batch.
+
+        Examples:
+            >>> probs = Attributes(torch.tensor([[0.1, 0.8, 0.6], [0.3, 0.9, 0.1]]))
+            >>> print(probs.positive_labels_conf)
+            [[0.8, 0.6], [0.9]]
+        """
+        return [
+            self.data[i, self.positive_labels[i]].tolist()
+            for i in range(self.data.shape[0])
+        ]
+
