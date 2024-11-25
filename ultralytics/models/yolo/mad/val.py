@@ -43,7 +43,7 @@ class MADValidator(DetectionValidator):
 
     def get_desc(self):
         """Returns description of evaluation metrics in string format."""
-        return ("%22s" + "%11s" * 8) % (
+        return ("%22s" + "%11s" * 10) % (
             "Class",
             "Images",
             "Instances",
@@ -51,8 +51,10 @@ class MADValidator(DetectionValidator):
             "R",
             "mAP50",
             "mAP50-95)",
-            "Attribute(P",
-            "R)",
+            "Attr(P",
+            "R",
+            "mAP50",
+            "mAP50-95)",
         )
 
     def postprocess(self, preds):

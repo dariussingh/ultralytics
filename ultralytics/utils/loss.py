@@ -607,7 +607,7 @@ class v8MADLoss(v8DetectionLoss):
         """Initializes v8MADLoss with model, sets attribute variables, and declares an attribute loss instance."""
         super().__init__(model)
         self.nattr = model.model[-1].nattr  # number of attributes
-        self.bce_attr = nn.BCELoss()  # Binary Cross-Entropy for multi-label attributes
+        self.bce_attr = nn.BCEWithLogitsLoss()  # Binary Cross-Entropy for multi-label attributes
 
     def __call__(self, preds, batch):
         """Calculate the total loss and detach it."""
