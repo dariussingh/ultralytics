@@ -280,7 +280,7 @@ class Pose(Detect):
         
         
 class MAD(Detect):
-    """YOLO MAD head for multilabel detection models."""
+    """YOLO MAD head for multiattribute detection models."""
 
     def __init__(self, nc=1, nattr=1, ch=()):
         """Initialize OBB with number of classes `nc` and layer channels `ch`."""
@@ -294,7 +294,7 @@ class MAD(Detect):
         """Perform forward pass through YOLO model and return predictions."""
         bs = x[0].shape[0]  # batch size
         attrs = torch.cat([self.cv4[i](x[i]).view(bs, self.nattr, -1) for i in range(self.nl)], 2)  # label logits
-        attrs = attrs.sigmoid() # normalize
+        # attrs = attrs.sigmoid() # normalize
         x = Detect.forward(self, x)
         if self.training:
             return x, attrs
