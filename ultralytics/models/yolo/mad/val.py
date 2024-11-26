@@ -178,19 +178,19 @@ class MADValidator(DetectionValidator):
         return self.match_predictions(detections[:, 5], gt_cls, iou)
 
 
-    # def plot_val_samples(self, batch, ni):
-    #     """Plots and saves validation set samples with predicted bounding boxes and keypoints."""
-    #     plot_images(
-    #         batch["img"],
-    #         batch["batch_idx"],
-    #         batch["cls"].squeeze(-1),
-    #         batch["bboxes"],
-    #         kpts=batch["keypoints"],
-    #         paths=batch["im_file"],
-    #         fname=self.save_dir / f"val_batch{ni}_labels.jpg",
-    #         names=self.names,
-    #         on_plot=self.on_plot,
-    #     )
+    def plot_val_samples(self, batch, ni):
+        """Plots and saves validation set samples with predicted bounding boxes and keypoints."""
+        plot_images(
+            batch["img"],
+            batch["batch_idx"],
+            batch["cls"].squeeze(-1),
+            batch["bboxes"],
+            attrs=batch['attributes'],
+            paths=batch["im_file"],
+            fname=self.save_dir / f"val_batch{ni}_labels.jpg",
+            names=self.names,
+            on_plot=self.on_plot,
+        )
 
     def plot_predictions(self, batch, preds, ni):
         """Plots predictions for YOLO model."""

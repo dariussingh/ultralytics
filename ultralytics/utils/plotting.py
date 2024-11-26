@@ -390,6 +390,7 @@ class Annotator:
                     thickness=self.tf,
                     lineType=cv2.LINE_AA,
                 )
+                
 
     def masks(self, masks, colors, im_gpu, alpha=0.5, retina_masks=False):
         """
@@ -1012,9 +1013,11 @@ def plot_images(
     confs: Optional[Union[torch.Tensor, np.ndarray]] = None,
     masks: Union[torch.Tensor, np.ndarray] = np.zeros(0, dtype=np.uint8),
     kpts: Union[torch.Tensor, np.ndarray] = np.zeros((0, 51), dtype=np.float32),
+    attrs: Union[torch.Tensor, np.ndarray] = np.zeros(0, dtype=np.float32),
     paths: Optional[List[str]] = None,
     fname: str = "images.jpg",
     names: Optional[Dict[int, str]] = None,
+    attributes: Optional[Dict[int, str]] = None,
     on_plot: Optional[Callable] = None,
     max_size: int = 1920,
     max_subplots: int = 16,
@@ -1022,7 +1025,7 @@ def plot_images(
     conf_thres: float = 0.25,
 ) -> Optional[np.ndarray]:
     """
-    Plot image grid with labels, bounding boxes, masks, and keypoints.
+    Plot image grid with labels, bounding boxes, masks, attributes and keypoints.
 
     Args:
         images: Batch of images to plot. Shape: (batch_size, channels, height, width).
@@ -1032,9 +1035,11 @@ def plot_images(
         confs: Confidence scores for each detection. Shape: (num_detections,).
         masks: Instance segmentation masks. Shape: (num_detections, height, width) or (1, height, width).
         kpts: Keypoints for each detection. Shape: (num_detections, 51).
+        attrs: Attributes for each detection. Shape: (num_detections, num_attibutes).
         paths: List of file paths for each image in the batch.
         fname: Output filename for the plotted image grid.
         names: Dictionary mapping class indices to class names.
+        attributes: Dictionary mapping class indices to attribute names.
         on_plot: Optional callback function to be called after saving the plot.
         max_size: Maximum size of the output image grid.
         max_subplots: Maximum number of subplots in the image grid.
@@ -1058,6 +1063,8 @@ def plot_images(
         masks = masks.cpu().numpy().astype(int)
     if isinstance(kpts, torch.Tensor):
         kpts = kpts.cpu().numpy()
+    if isinstance(attrs, torch.Tensor):
+        attrs = attrs.cpu().numpy()
     if isinstance(batch_idx, torch.Tensor):
         batch_idx = batch_idx.cpu().numpy()
 
@@ -1106,20 +1113,33 @@ def plot_images(
                 boxes[..., 1] += y
                 is_obb = boxes.shape[-1] == 5  # xywhr
                 boxes = ops.xywhr2xyxyxyxy(boxes) if is_obb else ops.xywh2xyxy(boxes)
-                for j, box in enumerate(boxes.astype(np.int64).tolist()):
-                    c = classes[j]
-                    color = colors(c)
-                    c = names.get(c, c) if names else c
-                    if labels or conf[j] > conf_thres:
-                        label = f"{c}" if labels else f"{c} {conf[j]:.1f}"
-                        annotator.box_label(box, label, color=color, rotated=is_obb)
+                if len(attrs):
+                    attr_values = attrs[idx]
+                    for j, (box, attr) in enumerate(zip(boxes.astype(np.int64).tolist(), attr_values)):
+                        c = classes[j]
+                        color = colors(c)
+                        attr_texts = [
+                            f"{attributes[a] if attributes else a}" for a, value in enumerate(attr) if value > conf_thres
+                        ]
+                        if labels or conf[j] > conf_thres:
+                            attr_label = ", ".join(attr_texts)
+                            annotator.box_label(box, attr_label, color=color, rotated=is_obb)
+                else:
+                    for j, box in enumerate(boxes.astype(np.int64).tolist()):
+                        c = classes[j]
+                        color = colors(c)
+                        c = names.get(c, c) if names else c
+                        if labels or conf[j] > conf_thres:
+                            label = f"{c}" if labels else f"{c} {conf[j]:.1f}"
+                            annotator.box_label(box, label, color=color, rotated=is_obb)
 
             elif len(classes):
                 for c in classes:
                     color = colors(c)
                     c = names.get(c, c) if names else c
                     annotator.text((x, y), f"{c}", txt_color=color, box_style=True)
-
+            
+            
             # Plot keypoints
             if len(kpts):
                 kpts_ = kpts[idx].copy()
