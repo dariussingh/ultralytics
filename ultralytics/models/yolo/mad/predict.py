@@ -43,7 +43,7 @@ class MADPredictor(DetectionPredictor):
         results = []
         for pred, orig_img, img_path in zip(preds, orig_imgs, self.batch[0]):
             pred[:, :4] = ops.scale_boxes(img.shape[2:], pred[:, :4], orig_img.shape).round()
-            attrs = pred[:, 6:].int()  
+            attrs = pred[:, 6:].sigmoid() 
 
             # Construct results with attributes, score, and boxes
             results.append(

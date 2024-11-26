@@ -174,4 +174,5 @@ calibration_*.npy
 
 # custom
 main.py
+inference.py
 to-do.md
