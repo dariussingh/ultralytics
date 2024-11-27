@@ -59,7 +59,7 @@ class MADValidator(DetectionValidator):
 
     def postprocess(self, preds):
         """Apply non-maximum suppression and return detections with high confidence scores."""
-        return ops.non_max_suppression(
+        preds = ops.non_max_suppression(
             preds,
             self.args.conf,
             self.args.iou,
@@ -68,7 +68,13 @@ class MADValidator(DetectionValidator):
             multi_label=True,
             agnostic=self.args.single_cls or self.args.agnostic_nms,
             max_det=self.args.max_det,
+            rotated=True,
         )
+        
+        for pred in preds:
+            pred[:, 6:] = pred[:, 6:].sigmoid() 
+            
+        return preds
 
     def init_metrics(self, model):
         """Initiate MAD metrics for YOLO model."""
@@ -194,9 +200,11 @@ class MADValidator(DetectionValidator):
 
     def plot_predictions(self, batch, preds, ni):
         """Plots predictions for YOLO model."""
+        pred_attrs = torch.cat([p[:, 6:].view(-1, self.nattr) for p in preds], 0)
         plot_images(
             batch["img"],
             *output_to_target(preds, max_det=self.args.max_det),
+            attrs=pred_attrs,
             paths=batch["im_file"],
             fname=self.save_dir / f"val_batch{ni}_pred.jpg",
             names=self.names,

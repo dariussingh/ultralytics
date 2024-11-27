@@ -1192,16 +1192,17 @@ def plot_images(
 
 
 @plt_settings()
-def plot_results(file="path/to/results.csv", dir="", segment=False, pose=False, classify=False, on_plot=None):
+def plot_results(file="path/to/results.csv", dir="", segment=False, pose=False, mad=False, classify=False, on_plot=None):
     """
     Plot training results from a results CSV file. The function supports various types of data including segmentation,
-    pose estimation, and classification. Plots are saved as 'results.png' in the directory where the CSV is located.
+    pose estimation, multi-attribute detection and classification. Plots are saved as 'results.png' in the directory where the CSV is located.
 
     Args:
         file (str, optional): Path to the CSV file containing the training results. Defaults to 'path/to/results.csv'.
         dir (str, optional): Directory where the CSV file is located if 'file' is not provided. Defaults to ''.
         segment (bool, optional): Flag to indicate if the data is for segmentation. Defaults to False.
         pose (bool, optional): Flag to indicate if the data is for pose estimation. Defaults to False.
+        mad (bool, optional): Flag to indicate if the data is for multi-label detection. Defaults to False
         classify (bool, optional): Flag to indicate if the data is for classification. Defaults to False.
         on_plot (callable, optional): Callback function to be executed after plotting. Takes filename as an argument.
             Defaults to None.
@@ -1226,6 +1227,9 @@ def plot_results(file="path/to/results.csv", dir="", segment=False, pose=False, 
     elif pose:
         fig, ax = plt.subplots(2, 9, figsize=(21, 6), tight_layout=True)
         index = [2, 3, 4, 5, 6, 7, 8, 11, 12, 15, 16, 17, 18, 19, 9, 10, 13, 14]
+    elif mad:
+        fig, ax = plt.subplots(2, 6, figsize=(15, 6), tight_layout=True)
+        index = [2, 3, 4, 5, 10, 11, 12, 13, 8, 9, 14, 15]
     else:
         fig, ax = plt.subplots(2, 5, figsize=(12, 6), tight_layout=True)
         index = [2, 3, 4, 5, 6, 9, 10, 11, 7, 8]
