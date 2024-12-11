@@ -170,6 +170,34 @@ def kpt_iou(kpt1, kpt2, area, sigma, eps=1e-7):
     return ((-e).exp() * kpt_mask[:, None]).sum(-1) / (kpt_mask.sum(-1)[:, None] + eps)
 
 
+def attr_iou(attr1, attr2, eps=1e-7):
+    """
+    Calculate intersection-over-union (IoU) of boxes. 
+
+    Args:
+        attr1 (torch.Tensor): A tensor of shape (N, K) representing K attributes for N bounding boxes.
+        attr2 (torch.Tensor): A tensor of shape (M, K) representing K attributes for M bounding boxes.
+        eps (float, optional): A small value to avoid division by zero. Defaults to 1e-7.
+
+    Returns:
+        (torch.Tensor): An NxM tensor containing the pairwise IoU values for every element in attr1 and attr2.
+    """
+    # Ensure float precision for calculations
+    attr1, attr2 = attr1.float(), attr2.float()
+    
+    # Compute pairwise intersection
+    intersection = torch.matmul(attr1, attr2.T)  # (N, M)
+    
+    # Compute pairwise union
+    attr1_sum = attr1.sum(dim=1, keepdim=True)  # (N, 1)
+    attr2_sum = attr2.sum(dim=1, keepdim=True)  # (M, 1)
+    union = attr1_sum + attr2_sum.T - intersection  # (N, M)
+    
+    # Calculate IoU
+    iou = intersection / (union + eps)
+    return iou
+
+
 def _get_covariance_matrix(boxes):
     """
     Generating covariance matrix from obbs.

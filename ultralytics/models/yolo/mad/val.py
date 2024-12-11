@@ -8,7 +8,7 @@ import torch
 from ultralytics.models.yolo.detect import DetectionValidator
 from ultralytics.utils import LOGGER, ops
 from ultralytics.utils.checks import check_requirements
-from ultralytics.utils.metrics import OKS_SIGMA, MADMetrics, box_iou, kpt_iou
+from ultralytics.utils.metrics import OKS_SIGMA, MADMetrics, box_iou, attr_iou
 from ultralytics.utils.plotting import output_to_target, plot_images
 
 
@@ -174,12 +174,11 @@ class MADValidator(DetectionValidator):
                 where N is the number of detections.
 
         """
-        iou = box_iou(gt_bboxes, detections[:, :4])
-        
         if pred_attrs is not None and gt_attrs is not None:
             pred_attrs = pred_attrs > 0.5
-            correct_attrs = (gt_attrs[:, None, :] == pred_attrs[None, :, :]).all(dim=-1)
-            iou = iou * correct_attrs
+            iou = attr_iou(gt_attrs, pred_attrs)
+        else: # boxes
+            iou = box_iou(gt_bboxes, detections[:, :4])
         
         return self.match_predictions(detections[:, 5], gt_cls, iou)
 
