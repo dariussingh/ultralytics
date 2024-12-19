@@ -72,7 +72,7 @@ class MADValidator(DetectionValidator):
         )
         
         for pred in preds:
-            pred[:, 6:] = pred[:, 6:].sigmoid() 
+            pred[:, 7:] = pred[:, 7:].sigmoid() 
             
         return preds
 
