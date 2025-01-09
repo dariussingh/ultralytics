@@ -198,6 +198,36 @@ def attr_iou(attr1, attr2, eps=1e-7):
     return iou
 
 
+def attribute_iou(bbox1, bbox2, attr1, attr2, spatial_weight=0.5, eps=1e-7):
+    """
+    Calculate the Attribute IoU, considering both bbox IoU and attribute IoU.
+
+    Args:
+        bbox1 (torch.Tensor): A tensor of shape (N, 4) representing N bounding boxes in (x1, y1, x2, y2) format.
+        bbox2 (torch.Tensor): A tensor of shape (M, 4) representing M bounding boxes in (x1, y1, x2, y2) format.
+        attr1 (torch.Tensor): A tensor of shape (N, K) representing K attributes for N bounding boxes.
+        attr2 (torch.Tensor): A tensor of shape (M, K) representing K attributes for M bounding boxes.
+        spatial_weight (float, optional): The weight for the spatial IoU in the overall metric. Defaults to 0.5.
+        eps (float, optional): A small value to avoid division by zero. Defaults to 1e-7.
+
+    Returns:
+        (torch.Tensor): An NxM tensor containing the pairwise Attribute IoU values.
+    """
+    # Ensure spatial weight is valid
+    assert 0 <= spatial_weight <= 1, "spatial_weight must be between 0 and 1"
+    
+    # Calculate spatial IoU (bounding box IoU)
+    spatial_iou = box_iou(bbox1, bbox2, eps=eps)  # (N, M)
+    
+    # Calculate attribute IoU (class IoU)
+    attr_iou_matrix = attr_iou(attr1, attr2, eps=eps)  # (N, M)
+    
+    # Combine spatial and attribute IoU
+    combined_iou = spatial_weight * spatial_iou + (1 - spatial_weight) * attr_iou_matrix
+    return combined_iou
+
+
+
 def _get_covariance_matrix(boxes):
     """
     Generating covariance matrix from obbs.

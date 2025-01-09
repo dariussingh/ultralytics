@@ -8,7 +8,7 @@ import torch
 from ultralytics.models.yolo.detect import DetectionValidator
 from ultralytics.utils import LOGGER, ops
 from ultralytics.utils.checks import check_requirements
-from ultralytics.utils.metrics import OKS_SIGMA, MADMetrics, box_iou, attr_iou
+from ultralytics.utils.metrics import OKS_SIGMA, MADMetrics, box_iou, attribute_iou
 from ultralytics.utils.plotting import output_to_target, plot_images
 
 
@@ -68,11 +68,10 @@ class MADValidator(DetectionValidator):
             multi_label=True,
             agnostic=self.args.single_cls or self.args.agnostic_nms,
             max_det=self.args.max_det,
-            rotated=True,
         )
         
         for pred in preds:
-            pred[:, 7:] = pred[:, 7:].sigmoid() 
+            pred[:, 6:] = pred[:, 6:].sigmoid() 
             
         return preds
 
@@ -152,6 +151,51 @@ class MADValidator(DetectionValidator):
                     self.save_dir / "labels" / f'{Path(batch["im_file"][si]).stem}.txt',
                 )
 
+    
+    def match_attributes(self, box_matches, pred_attrs, true_attrs, attr_iou_thresh=0.5):
+        """
+        Matches attributes for predictions after box matching.
+
+        Args:
+            box_matches (torch.Tensor): True positives tensor of shape(N,10) for 10 IoU thresholds.
+            pred_attrs (torch.Tensor): Predicted attributes of shape (N, K).
+            true_attrs (torch.Tensor): Ground truth attributes of shape (M, K).
+            attr_iou_thresh (float): IoU threshold for attributes.
+
+        Returns:
+            (torch.Tensor): Correct tensor of shape (N, 10) for 10 attribute IoU thresholds.
+        """
+        
+        # Ensure attributes are boolean
+        pred_attrs, true_attrs = pred_attrs.bool(), true_attrs.bool()
+        
+        # Find matched box pairs
+        matched_indices = box_matches.any(dim=1).nonzero(as_tuple=True)[0]  # Matched detections indices
+
+        # Dx10 matrix for attribute correctness
+        attr_correct = np.zeros((pred_attrs.shape[0], self.iouv.shape[0])).astype(bool)
+
+        # Evaluate attributes only for matched boxes
+        for i, threshold in enumerate(self.iouv.cpu().tolist()):
+            for pred_idx in matched_indices:
+                true_idx = torch.nonzero(box_matches[pred_idx, i], as_tuple=True)[0]
+                if len(true_idx) > 0:
+                    true_idx = true_idx[0]  # Only one ground truth per matched prediction
+
+                    # Compute attribute IoU for matched pairs
+                    pred_attr = pred_attrs[pred_idx]
+                    true_attr = true_attrs[true_idx]
+                    intersection = (pred_attr & true_attr).sum().item()
+                    union = (pred_attr | true_attr).sum().item()
+                    attr_iou = intersection / (union + 1e-7)
+
+                    # Check if attribute IoU exceeds threshold
+                    attr_correct[pred_idx, i] = attr_iou >= attr_iou_thresh
+
+        return torch.tensor(attr_correct, dtype=torch.bool, device=pred_attrs.device)
+
+        
+    
 
     def _process_batch(self, detections, gt_bboxes, gt_cls, pred_attrs=None, gt_attrs=None):
         """
@@ -174,13 +218,16 @@ class MADValidator(DetectionValidator):
                 where N is the number of detections.
 
         """
+        # boxes
+        iou = box_iou(gt_bboxes, detections[:, :4])
+        tp = self.match_predictions(detections[:, 5], gt_cls, iou)
+        
+        
         if pred_attrs is not None and gt_attrs is not None:
             pred_attrs = pred_attrs > 0.5
-            iou = attr_iou(gt_attrs, pred_attrs)
-        else: # boxes
-            iou = box_iou(gt_bboxes, detections[:, :4])
+            tp = self.match_attributes(tp, pred_attrs, gt_attrs)
         
-        return self.match_predictions(detections[:, 5], gt_cls, iou)
+        return tp
 
 
     def plot_val_samples(self, batch, ni):
