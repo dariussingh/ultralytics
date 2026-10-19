@@ -451,6 +451,7 @@ The below table contains valid Ultralytics image formats.
 | `.dng`         | `yolo predict source=image.dng`  | [Adobe DNG](https://en.wikipedia.org/wiki/Digital_Negative)                |
 | `.heic`        | `yolo predict source=image.heic` | [High Efficiency Image Format](https://en.wikipedia.org/wiki/HEIF)         |
 | `.heif`        | `yolo predict source=image.heif` | [High Efficiency Image Format](https://en.wikipedia.org/wiki/HEIF)         |
+| `.jfif`        | `yolo predict source=image.jfif` | [JPEG](https://en.wikipedia.org/wiki/JPEG)                                 |
 | `.jp2`         | `yolo predict source=image.jp2`  | [JPEG 2000](https://en.wikipedia.org/wiki/JPEG_2000)                       |
 | `.jpeg`        | `yolo predict source=image.jpeg` | [JPEG](https://en.wikipedia.org/wiki/JPEG)                                 |
 | `.jpg`         | `yolo predict source=image.jpg`  | [JPEG](https://en.wikipedia.org/wiki/JPEG)                                 |
