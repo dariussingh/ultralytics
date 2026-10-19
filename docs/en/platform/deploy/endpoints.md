@@ -354,7 +354,7 @@ Dedicated endpoints are **not subject to the Platform API rate limits**. Request
 
 !!! tip "Video Inference"
 
-    Dedicated endpoints accept video files in addition to images. Supported video formats (up to 100MB): ASF, AVI, GIF, M4V, MKV, MOV, MP4, MPEG, MPG, TS, WEBM, WMV. Each frame is processed individually and results are returned per frame. Supported image formats (up to 50MB): AVIF, BMP, DNG, HEIC, JP2, JPEG, JPG, MPO, PNG, TIF, TIFF, WEBP.
+    Dedicated endpoints accept video files in addition to images. Supported video formats (up to 100MB): ASF, AVI, GIF, M4V, MKV, MOV, MP4, MPEG, MPG, TS, WEBM, WMV. Each frame is processed individually and results are returned per frame. Supported image formats (up to 50MB): AVIF, BMP, DNG, HEIC, HEIF, JFIF, JP2, JPEG, JPEG2000, JPG, MPO, PNG, TIF, TIFF, WEBP.
 
 ### Response Format
 
