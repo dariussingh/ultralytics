@@ -43,6 +43,7 @@ IMG_FORMATS = {
     "dng",
     "heic",
     "heif",
+    "jfif",
     "jp2",
     "jpeg",
     "jpeg2000",
